@@ -107,28 +107,26 @@ class VideoMetaData(Extractor):
         nFrames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         logger.debug("FPS: %d, total frames: %d", fps, nFrames)
 
-        # Do first frame outside loop
-        ret, frame = cap.read()
-        logger.debug("Resolution: %s", frame.shape)
+        frame_size = (int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)))
+        logger.debug("Resolution: %s", frame_size)
+        prev_frame = np.zeros(frame_size, np.uint8)
 
-        for mask in masks:
-            frame[mask['y']:mask['y2'], mask['x']:mask['x2']] = [0, 0, 0]
-        prev_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-        self.results = [(0, 0.0)]
+        self.results = []
 
         # Start processing from the second frame
         while True:
             frame_idx = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
             time_idx = float(cap.get(cv2.CAP_PROP_POS_MSEC))
+            time_real = datetime.timedelta(milliseconds=time_idx)
+
             ret, frame = cap.read()
             if not ret:
                 break
 
-            for mask in masks:
-                frame[mask['y']:mask['y2'], mask['x']:mask['x2']] = [0, 0, 0]
-
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+            for mask in masks:
+                frame_gray[mask['y']:mask['y2'], mask['x']:mask['x2']] = 0
 
             # METHOD #1: find the number of pixels that have (significantly) changed since the last frame
             frame_diff = cv2.absdiff(frame_gray, prev_frame)
@@ -136,13 +134,13 @@ class VideoMetaData(Extractor):
             d_colors = float(np.count_nonzero(frame_thres)) / frame_gray.size
 
             if d_colors > 0.01:
-                logger.debug("Found slide transition at frame %d, time: %s", frame_idx, datetime.timedelta(milliseconds=time_idx))
+                logger.debug("Found slide transition at frame %d, time: %s", frame_idx, time_real)
                 self.results.append((frame_idx, time_idx))
 
             prev_frame = frame_gray
 
             if frame_idx % (10*fps) == 0:
-                logger.debug("%.2f done\t%s", float(frame_idx)/nFrames*100, time_idx)
+                logger.debug("Slide transition detection %.2f%% done\t%s", float(frame_idx)/nFrames*100, time_real)
 
         cap.release()
 
