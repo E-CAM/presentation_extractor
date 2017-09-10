@@ -7,14 +7,17 @@ Author Ward Poelmans <wpoely86@gmail.com>
 
 import datetime
 import logging
+import os
+import shutil
+import tempfile
 # import subprocess
 
-import cv2
+import cv2  # OpenCV
 import numpy as np
 
+import pyclowder
 from pyclowder.extractors import Extractor
-import pyclowder.files
-from pyclowder.utils import CheckMessage
+from pyclowder.sections import upload as sections_upload
 
 tomask = {
     'x': 1018,
@@ -39,15 +42,16 @@ class VideoMetaData(Extractor):
         logging.getLogger('__main__').setLevel(logging.DEBUG)
 
         self.results = None
+        self.tempdir = None
 
     def check_message(self, connector, host, secret_key, resource, parameters):  # pylint: disable=unused-argument,too-many-arguments
         """The extractor to not download the file."""
         logger = logging.getLogger(__name__)
         if not resource['file_ext'] == '.mp4':
             logger.debug("Unknown filetype, skipping")
-            return CheckMessage.ignore
+            return pyclowder.utils.CheckMessage.ignore
 
-        return CheckMessage.download  # or bypass
+        return pyclowder.utils.CheckMessage.download  # or bypass
 
     def process_message(self, connector, host, secret_key, resource, parameters):  # pylint: disable=unused-argument,too-many-arguments
         """The actual extractor"""
@@ -62,7 +66,9 @@ class VideoMetaData(Extractor):
         logger.debug("Got resources: %s", resource)
         logger.debug("Got parameters: %s", parameters)
 
-        self.find_slides_transitions(connector, host, secret_key, resource, parameters, masks=tomask)
+        self.tempdir = tempfile.mkdtemp(prefix='clowder-video-slides')
+
+        self.find_slides_transitions(connector, host, secret_key, resource, masks=tomask)
 
         if self.results and len(self.results) > 1:
             slidesmeta = {
@@ -77,9 +83,9 @@ class VideoMetaData(Extractor):
             # upload metadata
             pyclowder.files.upload_metadata(connector, host, secret_key, resource['id'], metadata)
 
+        shutil.rmtree(self.tempdir, ignore_errors=True)
 
-
-    def find_slides_transitions(self, connector, host, secret_key, resource, parameters, masks=None):  # pylint: disable=unused-argument,too-many-arguments
+    def find_slides_transitions(self, connector, host, secret_key, resource, masks=None):  # pylint: disable=unused-argument,too-many-arguments
         """
         Find slide transitions in a video. Currently uses one method:
             - Convert to greyscale
@@ -136,6 +142,21 @@ class VideoMetaData(Extractor):
             if d_colors > 0.01:
                 logger.debug("Found slide transition at frame %d, time: %s", frame_idx, time_real)
                 self.results.append((frame_idx, time_idx))
+                slidepath = os.path.join(self.tempdir, 'slide%05d.png' % len(self.results))
+                cv2.imwrite(slidepath, frame)
+
+                # Create section for file
+                sectionid = sections_upload(connector, host, secret_key, {'file_id': resource['id']})
+                slidemeta = {
+                    'section_id': sectionid,
+                    'width': str(float(frame.shape[1])),  # this doesn't seem to work...
+                    'height': str(float(frame.shape[0])),
+                }
+                description = "Slide %2d at %s" % (len(self.results), time_real)
+                # upload preview & associated it with the section
+                pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], slidepath, slidemeta)
+                # add a description to every preview
+                pyclowder.sections.upload_description(connector, host, secret_key, sectionid, {'description': description})
 
             prev_frame = frame_gray
 
