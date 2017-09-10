@@ -1,0 +1,26 @@
+{
+  "@context": "http://clowder.ncsa.illinois.edu/contexts/extractors.jsonld",
+  "name": "ncsa.videopresentation",
+  "version": "1.0",
+  "description": "Presentation Video extractor.",
+  "author": "Ward Poelmans <wpoely86@gmail.com>",
+  "contributors": [],
+  "repository": {
+    "repType": "git",
+    "repUrl": "https://opensource.ncsa.illinois.edu/stash/scm/cats/pyclowder.git"
+  },
+    "contexts": [
+    {
+        "nrslides": "http://schema.org",
+        "listslides": "http://schema.org"
+    }
+  ],
+  "process": {
+    "file": [
+      "video/*"
+    ]
+  },
+  "external_services": [],
+  "dependencies": [],
+  "bibtex": []
+}
