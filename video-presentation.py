@@ -28,6 +28,33 @@ tomask = {
 tomask['x2'] = tomask['x'] + tomask['b']
 tomask['y2'] = tomask['y'] + tomask['h']
 
+tomask = {
+    'x': 1108,
+    'y': 589,
+    'x2': 1280,
+    'y2': 720,
+}
+
+# -profile:v main should not be needed?
+command = "ffmpeg -i %(inputfile)s -f dash -vf 'scale=-1:240' -c:v libx264 -x264opts 'keyint=%(rate)s:min-keyint=%(rate)s:no-scenecut' -crf 23 -preset medium -movflags +faststart -c:a copy %(outputfile)s"
+
+# Assuming 16:9
+# 256  x 144
+# 512  x 288
+# 640  x 360
+# 800  x 450
+# 960  x 540
+# 1024 x 576
+# 1152 x 648
+# 1280 x 720
+# 1920 x 1080
+
+
+# References:
+# - https://superuser.com/questions/908280/what-is-the-correct-way-to-fix-keyframes-in-ffmpeg-for-dash
+# - https://blog.streamroot.io/encode-multi-bitrate-videos-mpeg-dash-mse-based-media-players/
+# - https://trac.ffmpeg.org/wiki/Encode/H.264
+
 
 class VideoMetaData(Extractor):
     """Extract slide transitions in a video"""
