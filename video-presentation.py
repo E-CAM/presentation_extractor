@@ -77,6 +77,11 @@ class VideoMetaData(Extractor):
             }
             for _, time in self.results:
                 slidesmeta['listslides'].append(str(datetime.timedelta(milliseconds=time)))
+
+            vtt = self.generate_vtt_chapters()
+            slidesmeta['WEBVTT'] = vtt
+            #'\n'.join(vtt)
+
             metadata = self.get_metadata(slidesmeta, 'file', resource['id'], host)
             logger.debug(metadata)
 
@@ -84,6 +89,31 @@ class VideoMetaData(Extractor):
             pyclowder.files.upload_metadata(connector, host, secret_key, resource['id'], metadata)
 
         shutil.rmtree(self.tempdir, ignore_errors=True)
+
+    def generate_vtt_chapters(self):
+        """
+        Generate a WebVTT that defines the chapters
+        """
+        # first the mandatory WebVTT header
+        vttfile = ["WEBVTT", ""]
+
+        # first chapter starts at.
+        # Big assumption: the length of the movie less then 24 hours
+        prev_time = datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(milliseconds=self.results[0][1])
+
+        # the format needs to be 00:00:00.000
+        format_str = "%H:%M:%S.%f"
+
+        # continue from the second slide
+        for idx, (_, time_idx) in enumerate(self.results[1:]):
+            begin_delta = datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(milliseconds=time_idx)
+            # microseconds always get printed as 6 digits passed with zeros, so we delete the last 3 digits
+            vttfile.append("%s --> %s" % (prev_time.strftime(format_str)[:-3], begin_delta.strftime(format_str)[:-3]))
+            vttfile.append("Slide %d" % (idx+1))
+            vttfile.append("")
+            prev_time = begin_delta
+
+        return vttfile
 
     def find_slides_transitions(self, connector, host, secret_key, resource, masks=None):  # pylint: disable=unused-argument,too-many-arguments
         """

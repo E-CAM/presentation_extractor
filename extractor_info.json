@@ -12,7 +12,8 @@
     "contexts": [
     {
         "nrslides": "http://schema.org",
-        "listslides": "http://schema.org"
+        "listslides": "http://schema.org",
+        "WEBVTT": "http://schema.org"
     }
   ],
   "process": {
