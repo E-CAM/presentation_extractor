@@ -10,7 +10,6 @@ import logging
 import os
 import shutil
 import tempfile
-# import subprocess
 
 import cv2  # OpenCV
 import numpy as np
@@ -20,24 +19,28 @@ from pyclowder.extractors import Extractor
 from pyclowder.sections import upload as sections_upload
 
 tomask = {
-    'x': 1018,
-    'y': 0,
+    'x1': 1018,
+    'y1': 0,
     'b': 342,
     'h': 194,
 }
-tomask['x2'] = tomask['x'] + tomask['b']
-tomask['y2'] = tomask['y'] + tomask['h']
+tomask['x2'] = tomask['x1'] + tomask['b']
+tomask['y2'] = tomask['y1'] + tomask['h']
 
 tomask = {
-    'x': 1108,
-    'y': 589,
+    'x1': 1108,
+    'y1': 589,
     'x2': 1280,
     'y2': 720,
 }
 
+# Comments for DASH:
+#
 # -profile:v main should not be needed?
-command = "ffmpeg -i %(inputfile)s -f dash -vf 'scale=-1:240' -c:v libx264 -x264opts 'keyint=%(rate)s:min-keyint=%(rate)s:no-scenecut' -crf 23 -preset medium -movflags +faststart -c:a copy %(outputfile)s"
-
+# command = "ffmpeg -i %(inputfile)s -f dash -vf 'scale=-1:240' -c:v libx264 -x264opts \
+# 'keyint=%(rate)s:min-keyint=%(rate)s:no-scenecut' -crf 23 -preset medium -movflags +faststart \
+# -c:a copy %(outputfile)s"
+#
 # Assuming 16:9
 # 256  x 144
 # 512  x 288
@@ -48,8 +51,7 @@ command = "ffmpeg -i %(inputfile)s -f dash -vf 'scale=-1:240' -c:v libx264 -x264
 # 1152 x 648
 # 1280 x 720
 # 1920 x 1080
-
-
+#
 # References:
 # - https://superuser.com/questions/908280/what-is-the-correct-way-to-fix-keyframes-in-ffmpeg-for-dash
 # - https://blog.streamroot.io/encode-multi-bitrate-videos-mpeg-dash-mse-based-media-players/
@@ -67,6 +69,7 @@ class VideoMetaData(Extractor):
         # setup logging for the exctractor
         logging.getLogger('pyclowder').setLevel(logging.DEBUG)
         logging.getLogger('__main__').setLevel(logging.DEBUG)
+        self.logger = logging.getLogger(__name__)
 
         self.results = None
         self.tempdir = None
@@ -80,19 +83,13 @@ class VideoMetaData(Extractor):
         return pyclowder.utils.CheckMessage.download  # or bypass
 
     def process_message(self, connector, host, secret_key, resource, parameters):  # pylint: disable=unused-argument,too-many-arguments
-        """The actual extractor"""
-        # Process the file and upload the results
+        """The actual extractor: we process the video and upload the results"""
+        self.logger.debug("Clowder host: %s", host)
+        self.logger.debug("Received resources: %s", resource)
+        self.logger.debug("Received parameters: %s", parameters)
+        # userparameters = parameters['parameters']
 
-# resources: {'intermediate_id': u'59b3fe55e4b03bcb8e8bf30f', 'parent': {'type': 'dataset', 'id': u'598a233be4b03bcb4644e284'}, 'local_paths': [u'/tmp/tmpgpaHdP.mp4'], 'file_ext': u'.mp4', 'type': 'file', 'id': u'59b3fe55e4b03bcb8e8bf30f', 'name': u'zoom.mp4'}
-
-# parameters: {u'parameters': u'{}', 'routing_key': 'extractors.ncsa.videopresentation', u'filename': u'zoom.mp4', u'secretKey': u'r1ek3rs', u'host': u'http://clowder:9000', u'flags': u'', u'fileSize': u'87656172', u'intermediateId': u'59b3fe55e4b03bcb8e8bf30f', u'action': u'manual-submission', u'id': u'59b3fe55e4b03bcb8e8bf30f', u'datasetId': u'598a233be4b03bcb4644e284'}
-
-        logger = logging.getLogger(__name__)
-        logger.debug("Got host: %s", host)
-        logger.debug("Got resources: %s", resource)
-        logger.debug("Got parameters: %s", parameters)
-
-        self.tempdir = tempfile.mkdtemp(prefix='clowder-video-slides')
+        self.tempdir = tempfile.mkdtemp(prefix='clowder-video-presentation')
 
         self.find_slides_transitions(connector, host, secret_key, resource, masks=tomask)
 
@@ -119,7 +116,7 @@ class VideoMetaData(Extractor):
                 prev_time = begin_delta
 
             metadata = self.get_metadata(slidesmeta, 'file', resource['id'], host)
-            logger.debug(metadata)
+            self.logger.debug("New metadata: %s", metadata)
 
             # upload metadata
             pyclowder.files.upload_metadata(connector, host, secret_key, resource['id'], metadata)
@@ -127,9 +124,7 @@ class VideoMetaData(Extractor):
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
     def generate_vtt_chapters(self):
-        """
-        Generate a WebVTT that defines the chapters
-        """
+        """Generate a WebVTT that defines the chapters"""
         # first the mandatory WebVTT header
         vttfile = ["WEBVTT", ""]
 
@@ -160,32 +155,30 @@ class VideoMetaData(Extractor):
             - If enough: new slide
 
         :param masks: list of area to mask out before doing slide transition detection
-        :return list with tuples of frame number and timestamp of every found slide transition.
+        :return list with tuples of frame number, timestamp and id of a preview of every found slide transition.
         """
-        logger = logging.getLogger(__name__)
-
         if masks is None:
             masks = []
-        if not isinstance(masks, list):
+        elif not isinstance(masks, list):
             masks = [masks]
 
-        logger.debug("Slide transition detection started on %s", resource['local_paths'][0])
+        self.logger.debug("Slide transition detection started on %s", resource['local_paths'][0])
         cap = cv2.VideoCapture(resource['local_paths'][0])
         if not cap.isOpened():
-            logger.error("Failed to open file %s", resource['local_paths'][0])
+            self.logger.error("Failed to open file %s", resource['local_paths'][0])
             return
 
         fps = cap.get(cv2.CAP_PROP_FPS)
         nFrames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        logger.debug("FPS: %d, total frames: %d", fps, nFrames)
+        self.logger.debug("FPS: %d, total frames: %d", fps, nFrames)
 
         frame_size = (int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)))
-        logger.debug("Resolution: %s", frame_size)
+        self.logger.debug("Resolution: %s", frame_size)
         prev_frame = np.zeros(frame_size, np.uint8)
 
         self.results = []
 
-        # Start processing from the second frame
+        # Start processing from the first frame
         while True:
             frame_idx = int(cap.get(cv2.CAP_PROP_POS_FRAMES))
             time_idx = float(cap.get(cv2.CAP_PROP_POS_MSEC))
@@ -198,9 +191,9 @@ class VideoMetaData(Extractor):
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
             for mask in masks:
-                frame_gray[mask['y']:mask['y2'], mask['x']:mask['x2']] = 0
+                frame_gray[mask['y1']:mask['y2'], mask['x1']:mask['x2']] = 0
 
-            # METHOD #1: find the number of pixels that have (significantly) changed since the last frame
+            # Find the number of pixels that have (significantly) changed since the last frame
             frame_diff = cv2.absdiff(frame_gray, prev_frame)
             _, frame_thres = cv2.threshold(frame_diff, 115, 255, cv2.THRESH_BINARY)
             d_colors = float(np.count_nonzero(frame_thres)) / frame_gray.size
@@ -227,7 +220,8 @@ class VideoMetaData(Extractor):
             prev_frame = frame_gray
 
             if frame_idx % (10*fps) == 0:
-                logger.debug("Slide transition detection %.2f%% done\t%s", float(frame_idx)/nFrames*100, time_real)
+                self.logger.debug("Slide transition detection %.2f%% done\t%s", float(frame_idx)/nFrames*100, time_real)
+
 
         self.results.append((frame_idx, time_idx, None))
         cap.release()
