@@ -6,6 +6,7 @@ Author Ward Poelmans <wpoely86@gmail.com>
 """
 
 import datetime
+import json
 import logging
 import os
 import shutil
@@ -18,21 +19,16 @@ import pyclowder
 from pyclowder.extractors import Extractor
 from pyclowder.sections import upload as sections_upload
 
-tomask = {
-    'x1': 1018,
-    'y1': 0,
-    'b': 342,
-    'h': 194,
-}
-tomask['x2'] = tomask['x1'] + tomask['b']
-tomask['y2'] = tomask['y1'] + tomask['h']
-
-tomask = {
-    'x1': 1108,
-    'y1': 589,
-    'x2': 1280,
-    'y2': 720,
-}
+# For the mask settings, for example:
+#
+# {
+#    'x1': 1108,
+#    'y1': 589,
+#    'x2': 1280,
+#    'y2': 720,
+# }
+#
+# x1..x2 and y1..y2 is mask out in the frame. In this example, it's a box in the top right.
 
 # Comments for DASH:
 #
@@ -73,6 +69,29 @@ class VideoMetaData(Extractor):
 
         self.results = None
         self.tempdir = None
+        self.masksettings = None
+        self.read_mask_settings()
+
+    def read_mask_settings(self, filename=None):
+        """
+        Read the default settings for masking from the give file.
+        :param filename: optional path to settings file (defaults to 'settings.json' in the current directory)
+        """
+        if filename is None:
+            filename = os.path.join(os.path.dirname(os.path.realpath(__file__)), "settings.json")
+
+        if not os.path.isfile(filename):
+            self.logger.warning("No config file found at %s", filename)
+            return
+
+        try:
+            with open(filename, 'r') as settingsfile:
+                settings = json.load(settingsfile)
+                self.masksettings = settings['masks']
+        except (IOError, ValueError, KeyError) as err:
+            self.logger.error("Failed to read or parse %s as settings file: %s", filename, err)
+
+        self.logger.debug("Read settings from %s", filename)
 
     def check_message(self, connector, host, secret_key, resource, parameters):  # pylint: disable=unused-argument,too-many-arguments
         """Check if the extractor should download the file or ignore it."""
@@ -87,11 +106,18 @@ class VideoMetaData(Extractor):
         self.logger.debug("Clowder host: %s", host)
         self.logger.debug("Received resources: %s", resource)
         self.logger.debug("Received parameters: %s", parameters)
-        # userparameters = parameters['parameters']
+
+        # we reread the settings on every file we process
+        self.read_mask_settings()
+
+        usersettings = json.loads(parameters['parameters'])
+        usermask = usersettings.get('masks')
+        if isinstance(usermask, (dict, list)):
+            self.masksettings = usermask
 
         self.tempdir = tempfile.mkdtemp(prefix='clowder-video-presentation')
 
-        self.find_slides_transitions(connector, host, secret_key, resource, masks=tomask)
+        self.find_slides_transitions(connector, host, secret_key, resource, masks=self.masksettings)
 
         # first and last frame will always be in self.results
         if self.results and len(self.results) > 2:
@@ -190,8 +216,11 @@ class VideoMetaData(Extractor):
 
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-            for mask in masks:
-                frame_gray[mask['y1']:mask['y2'], mask['x1']:mask['x2']] = 0
+            try:
+                for mask in masks:
+                    frame_gray[mask['y1']:mask['y2'], mask['x1']:mask['x2']] = 0
+            except (KeyError, ValueError) as err:
+                self.logger.error("Failed to apply mask %s: %s", mask, err)
 
             # Find the number of pixels that have (significantly) changed since the last frame
             frame_diff = cv2.absdiff(frame_gray, prev_frame)
