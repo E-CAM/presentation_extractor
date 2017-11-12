@@ -17,7 +17,7 @@
   ],
   "process": {
     "file": [
-      "video/*"
+      "video/slidespresentation"
     ]
   },
   "external_services": [],
