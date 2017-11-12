@@ -97,17 +97,27 @@ class VideoMetaData(Extractor):
 
         self.find_slides_transitions(connector, host, secret_key, resource, masks=tomask)
 
-        if self.results and len(self.results) > 1:
+        # first and last frame will always be in self.results
+        if self.results and len(self.results) > 2:
             slidesmeta = {
-                'nrslides': len(self.results),
+                'nrslides': len(self.results) - 1,  # the last frame always gets added too
                 'listslides': [],
             }
-            for _, time in self.results:
-                slidesmeta['listslides'].append(str(datetime.timedelta(milliseconds=time)))
 
-            vtt = self.generate_vtt_chapters()
-            slidesmeta['WEBVTT'] = vtt
-            #'\n'.join(vtt)
+            # first chapter starts at.
+            # Big assumption: the length of the movie is less then 24 hours
+            prev_time = datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(milliseconds=self.results[0][1])
+            previewid = self.results[0][2]
+
+            # the WebVTT time format needs to be 00:00:00.000
+            format_str = "%H:%M:%S.%f"
+
+            for _, time_idx, new_previewid in self.results[1:]:
+                begin_delta = datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(milliseconds=time_idx)
+                # microseconds always get printed as 6 digits passed with zeros, so we delete the last 3 digits
+                slidesmeta['listslides'].append((str(prev_time.strftime(format_str)[:-3]), str(begin_delta.strftime(format_str)[:-3]), str(previewid)))
+                previewid = new_previewid
+                prev_time = begin_delta
 
             metadata = self.get_metadata(slidesmeta, 'file', resource['id'], host)
             logger.debug(metadata)
@@ -197,9 +207,8 @@ class VideoMetaData(Extractor):
             d_colors = float(np.count_nonzero(frame_thres)) / frame_gray.size
 
             if d_colors > 0.01:
-                logger.debug("Found slide transition at frame %d, time: %s", frame_idx, time_real)
-                self.results.append((frame_idx, time_idx))
-                slidepath = os.path.join(self.tempdir, 'slide%05d.png' % len(self.results))
+                self.logger.debug("Found slide transition at frame %d, time: %s", frame_idx, time_real)
+                slidepath = os.path.join(self.tempdir, 'slide%05d.png' % (len(self.results)+1))
                 cv2.imwrite(slidepath, frame)
 
                 # Create section for file
@@ -209,17 +218,19 @@ class VideoMetaData(Extractor):
                     'width': str(float(frame.shape[1])),  # this doesn't seem to work...
                     'height': str(float(frame.shape[0])),
                 }
-                description = "Slide %2d at %s" % (len(self.results), time_real)
+                description = "Slide %2d at %s" % (len(self.results)+1, time_real)
                 # upload preview & associated it with the section
-                pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], slidepath, slidemeta)
+                previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], slidepath, slidemeta)
                 # add a description to every preview
                 pyclowder.sections.upload_description(connector, host, secret_key, sectionid, {'description': description})
+                self.results.append((frame_idx, time_idx, previewid))
 
             prev_frame = frame_gray
 
             if frame_idx % (10*fps) == 0:
                 logger.debug("Slide transition detection %.2f%% done\t%s", float(frame_idx)/nFrames*100, time_real)
 
+        self.results.append((frame_idx, time_idx, None))
         cap.release()
 
 
