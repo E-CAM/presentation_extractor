@@ -78,7 +78,7 @@ class VideoMetaData(Extractor):
         :param filename: optional path to settings file (defaults to 'settings.json' in the current directory)
         """
         if filename is None:
-            filename = os.path.join(os.path.dirname(os.path.realpath(__file__)), "settings.json")
+            filename = os.path.join(os.path.dirname(os.path.realpath(__file__)), "config", "settings.json")
 
         if not os.path.isfile(filename):
             self.logger.warning("No config file found at %s", filename)
