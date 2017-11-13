@@ -1,0 +1,13 @@
+*.pyc
+*.pyo
+*.nja
+build/
+dist/
+*egg-info/
+*.sw[op]
+*~
+*.mp4
+*.png
+*.webm
+*.slidespresentation
+temp/
