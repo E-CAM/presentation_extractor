@@ -16,7 +16,7 @@ if [ "$RABBITMQ_URI" == "" ]; then
 fi
 
 # start server if asked
-if [ "$1" = 'extractor' ]; then
+if [ "$1" = "extractor" ]; then
     cd /home/clowder
 
     if [ "$RABBITMQ_PORT_5672_TCP_ADDR" != "" ]; then
