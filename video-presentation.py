@@ -172,6 +172,31 @@ class VideoMetaData(Extractor):
 
         return vttfile
 
+    def prepare_masks(self, masks, frame):
+        """
+        Convert masks to 'proper' masks: x1..x2 and y1..y2
+        :param masks: the list of areas to mask out
+        :param frame: tuple contain the resolution of the video
+        """
+        axis = {
+            'y1': 0,
+            'y2': 0,
+            'x1': 1,
+            'x2': 1,
+        }
+
+        for mask in masks:
+            for coord in axis.keys():
+                if mask.get(coord, '').endswith('%'):
+                    mask[coord] = int(frame[axis[coord]] * float(mask[coord].strip('%'))/100.0)
+
+            if 'x2' not in mask:
+                mask['x2'] = int(frame[1])
+            if 'y2' not in mask:
+                mask['y2'] = int(frame[0])
+
+        self.logger.debug("Masks after preparing: %s", masks)
+
     def find_slides_transitions(self, connector, host, secret_key, resource, masks=None):  # pylint: disable=unused-argument,too-many-arguments
         """
         Find slide transitions in a video. Currently uses one method:
@@ -201,6 +226,8 @@ class VideoMetaData(Extractor):
         frame_size = (int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)))
         self.logger.debug("Resolution: %s", frame_size)
         prev_frame = np.zeros(frame_size, np.uint8)
+
+        self.prepare_masks(masks, frame_size)
 
         self.results = []
 
