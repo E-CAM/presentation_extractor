@@ -231,7 +231,7 @@ class VideoMetaData(Extractor):
             self.logger.error("Failed to open file %s", resource['local_paths'][0])
             return
 
-        fps = cap.get(cv2.CAP_PROP_FPS)
+        fps = int(cap.get(cv2.CAP_PROP_FPS))  # assume it's constant and we convert to integer
         nFrames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         self.logger.debug("FPS: %d, total frames: %d", fps, nFrames)
 
