@@ -105,8 +105,11 @@ class VideoMetaData(Extractor):
     def check_message(self, connector, host, secret_key, resource, parameters):  # pylint: disable=unused-argument,too-many-arguments
         """Check if the extractor should download the file or ignore it."""
         if not resource['file_ext'] == '.slidespresentation':
-            self.logger.debug("Unknown filetype, skipping")
-            return pyclowder.utils.CheckMessage.ignore
+            if parameters.get('action', '') != 'manual-submission':
+                self.logger.debug("Unknown filetype, skipping")
+                return pyclowder.utils.CheckMessage.ignore
+            else:
+                self.logger.debug("Unknown filetype, but scanning by manuel request")
 
         return pyclowder.utils.CheckMessage.download  # or bypass
 
