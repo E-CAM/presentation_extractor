@@ -196,7 +196,7 @@ class VideoMetaData(Extractor):
 
         for mask in masks:
             for coord in axis.keys():
-                if mask.get(coord, '').endswith('%'):
+                if str(mask.get(coord, '')).endswith('%'):
                     mask[coord] = int(frame[axis[coord]] * float(mask[coord].strip('%'))/100.0)
 
             if 'x2' not in mask:
