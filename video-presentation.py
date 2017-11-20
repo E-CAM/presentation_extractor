@@ -234,11 +234,53 @@ class VideoMetaData(Extractor):
 
         frame_size = (int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)))
         self.logger.debug("Resolution: %s", frame_size)
-        prev_frame = np.zeros(frame_size, np.uint8)
+
+        # Set up the algorithm parameters
+        trigger_ratio = 5  # a relative change of 5X on the running average causes a trigger
+        minimum_total_change = 0.06  # 6% of pixels must change for the switch to be valid
+        min_pixel_change_av = (minimum_total_change / trigger_ratio) * frame_size[0] * frame_size[1]  # set lower bound on our pixel change average
+        min_slide_length = 45  # in seconds
+        averaging_time = 10  # in seconds, should not be longer than minimum slide length
+
+        # Allocate space for our average of the changes of the frames in the last averaging_time seconds
+        averaging_frames = int(averaging_time * fps)
+        av_array = np.zeros(averaging_frames, dtype=int)
+
+        # Set up the motion capture algorithm to learn over our set averaging time and output B/W images
+        fgbg = cv2.createBackgroundSubtractorKNN(history=averaging_frames, detectShadows=False)
+
+        index = 0
+        index_successful = 0
+        average = 0.0
+        previous_trigger = 0.0
+        analyse = 0
+        secondsToDelayGrab = 5
+        framesToDelayGrab = int(secondsToDelayGrab * fps)
+        maxAnalyse = (min_slide_length * fps) - averaging_frames
 
         self.prepare_masks(masks, frame_size)
 
         self.results = []
+
+        def write_down_shot():
+            """inline function to upload a preview to a section of the original file"""
+            self.logger.debug("Found slide transition at frame %d, time: %s", frame_idx, time_real)
+            slidepath = os.path.join(self.tempdir, 'slide%05d.png' % (len(self.results)+1))
+            cv2.imwrite(slidepath, real_frame)
+
+            # Create section for file
+            sectionid = sections_upload(connector, host, secret_key, {'file_id': resource['id']})
+            slidemeta = {
+                'section_id': sectionid,
+                'width': str(float(frame.shape[1])),  # this doesn't seem to work...
+                'height': str(float(frame.shape[0])),
+            }
+            description = "Slide %2d at %s" % (len(self.results)+1, time_real)
+            # upload preview & associated it with the section
+            previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], slidepath, slidemeta)
+            # add a description to every preview
+            pyclowder.sections.upload_description(connector, host, secret_key, sectionid, {'description': description})
+            self.results.append((frame_idx, time_idx, previewid))
 
         # Start processing from the first frame
         while True:
@@ -250,39 +292,58 @@ class VideoMetaData(Extractor):
             if not ret:
                 break
 
-            frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
+            real_frame = np.copy(frame)
             try:
                 for mask in masks:
-                    frame_gray[mask['y1']:mask['y2'], mask['x1']:mask['x2']] = 0
+                    frame[mask['y1']:mask['y2'], mask['x1']:mask['x2']] = 0
             except (KeyError, ValueError) as err:
                 self.logger.error("Failed to apply mask %s: %s", mask, err)
 
-            # Find the number of pixels that have (significantly) changed since the last frame
-            frame_diff = cv2.absdiff(frame_gray, prev_frame)
-            _, frame_thres = cv2.threshold(frame_diff, 115, 255, cv2.THRESH_BINARY)
-            d_colors = float(np.count_nonzero(frame_thres)) / frame_gray.size
+            # Check to see if we are in the analyse>=1 region where a slide will never be
+            # extracted (due to min_slide_length). If so, don't do any of the hard
+            # work. We need to start running again averaging_frames frames early though
+            # so that we have the correct average and bg memory
+            if analyse < 1:
+                # Apply the mask and count the white pixels
+                fgmask = fgbg.apply(frame)
+                whites = int(cv2.countNonZero(fgmask))
 
-            if d_colors > 0.01:
-                self.logger.debug("Found slide transition at frame %d, time: %s", frame_idx, time_real)
-                slidepath = os.path.join(self.tempdir, 'slide%05d.png' % (len(self.results)+1))
-                cv2.imwrite(slidepath, frame)
+                # If enough time has passed (or we are at the first frame), check if we have a trigger
+                if (time_idx - previous_trigger) > (min_slide_length * 1000) or index_successful == 0:
+                    # We use a minimum average to ensure the required % change
+                    if average > min_pixel_change_av:
+                        proxy_average = average
+                    else:
+                        proxy_average = min_pixel_change_av
 
-                # Create section for file
-                sectionid = sections_upload(connector, host, secret_key, {'file_id': resource['id']})
-                slidemeta = {
-                    'section_id': sectionid,
-                    'width': str(float(frame.shape[1])),  # this doesn't seem to work...
-                    'height': str(float(frame.shape[0])),
-                }
-                description = "Slide %2d at %s" % (len(self.results)+1, time_real)
-                # upload preview & associated it with the section
-                previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], slidepath, slidemeta)
-                # add a description to every preview
-                pyclowder.sections.upload_description(connector, host, secret_key, sectionid, {'description': description})
-                self.results.append((frame_idx, time_idx, previewid))
+                    if (whites > trigger_ratio * proxy_average) or index_successful == 0:
+                        seconds = int(round(time_idx / 1000))
+                        if index_successful == 0:
+                            isFirst = True
+                            write_down_shot()
+                        else:
+                            isFirst = False
 
-            prev_frame = frame_gray
+                        previous_trigger = time_idx
+
+                        # Ignore the frames that fall within the minimum slide length
+                        # but restart early to repopulate our average and background
+                        analyse = maxAnalyse
+
+                # Update our average and the associated array
+                if index_successful >= averaging_frames:
+                    average -= av_array[index_successful % averaging_frames] / float(averaging_frames)
+
+                av_array[index_successful % averaging_frames] = whites
+                average += av_array[index_successful % averaging_frames] / float(averaging_frames)
+                index_successful += 1
+
+            elif analyse == (maxAnalyse - framesToDelayGrab) and not isFirst:
+                seconds += secondsToDelayGrab
+                write_down_shot()
+
+            analyse -= 1
+            index += 1
 
             if frame_idx % (10*fps) == 0:
                 self.logger.debug("Slide transition detection %.2f%% done\t%s", float(frame_idx)/nFrames*100, time_real)
