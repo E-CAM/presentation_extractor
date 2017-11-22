@@ -14,6 +14,7 @@ import tempfile
 
 import cv2  # OpenCV
 import numpy as np
+import yaml
 
 import pyclowder
 from pyclowder.extractors import Extractor
@@ -87,7 +88,7 @@ class VideoMetaData(Extractor):
         :param filename: optional path to settings file (defaults to 'settings.json' in the current directory)
         """
         if filename is None:
-            filename = os.path.join(os.path.dirname(os.path.realpath(__file__)), "config", "settings.json")
+            filename = os.path.join(os.path.dirname(os.path.realpath(__file__)), "config", "settings.yml")
 
         if not os.path.isfile(filename):
             self.logger.warning("No config file found at %s", filename)
@@ -95,12 +96,12 @@ class VideoMetaData(Extractor):
 
         try:
             with open(filename, 'r') as settingsfile:
-                settings = json.load(settingsfile)
-                self.masksettings = settings['masks']
-        except (IOError, ValueError, KeyError) as err:
+                settings = yaml.safe_load(settingsfile)
+                self.masksettings = settings.get('masks', [])
+        except (IOError, yaml.YAMLError) as err:
             self.logger.error("Failed to read or parse %s as settings file: %s", filename, err)
 
-        self.logger.debug("Read settings from %s", filename)
+        self.logger.debug("Read settings from %s: %s", filename, self.masksettings)
 
     def check_message(self, connector, host, secret_key, resource, parameters):  # pylint: disable=unused-argument,too-many-arguments
         """Check if the extractor should download the file or ignore it."""
@@ -190,24 +191,47 @@ class VideoMetaData(Extractor):
         :param masks: the list of areas to mask out
         :param frame: tuple contain the resolution of the video
         """
-        axis = {
-            'y1': 0,
-            'y2': 0,
-            'x1': 1,
-            'x2': 1,
-        }
+        locations_hori = ['right', 'left']
+        locations_vert = ['top', 'bottom']
 
+        def parsevalue(size, max_size):
+            """handle % values"""
+            if str(size).endswith('%'):
+                return int(max_size * float(size.strip('%'))/100.0)
+            else:
+                return int(size)
+
+        parsed_masks = []
         for mask in masks:
-            for coord in axis.keys():
-                if str(mask.get(coord, '')).endswith('%'):
-                    mask[coord] = int(frame[axis[coord]] * float(mask[coord].strip('%'))/100.0)
+            where = mask.get('location', '').split('-')
+            if len(where) != 2 or where[0] not in locations_vert or where[1] not in locations_hori:
+                self.logger.error("Invalid location setting: %s. Possible choices: %s", mask.get('location'),
+                                  ', '.join(["%s-%s" % (y, x) for x in locations_hori for y in locations_vert]))
+                continue
 
-            if 'x2' not in mask:
-                mask['x2'] = int(frame[1])
-            if 'y2' not in mask:
-                mask['y2'] = int(frame[0])
+            if where[0] == "bottom":
+                y2 = frame[0]
+                y1 = frame[0] - parsevalue(mask.get('size_y', 0), frame[0])
+            else:
+                y1 = 0
+                y2 = parsevalue(mask.get('size_y', 0), frame[0])
 
-        self.logger.debug("Masks after preparing: %s", masks)
+            if where[1] == "right":
+                x2 = frame[1]
+                x1 = frame[1] - parsevalue(mask.get('size_x', 0), frame[1])
+            else:
+                x1 = 0
+                x2 = parsevalue(mask.get('size_x', 0), frame[1])
+
+            parsed_masks.append({
+                'x1': x1,
+                'x2': x2,
+                'y1': y1,
+                'y2': y2,
+            })
+
+        self.logger.debug("Masks after preparing: %s", parsed_masks)
+        return parsed_masks
 
     def find_slides_transitions(self, connector, host, secret_key, resource, masks=None):  # pylint: disable=unused-argument,too-many-arguments
         """
@@ -239,7 +263,7 @@ class VideoMetaData(Extractor):
         self.logger.debug("Resolution: %s", frame_size)
         prev_frame = np.zeros(frame_size, np.uint8)
 
-        self.prepare_masks(masks, frame_size)
+        cur_masks = self.prepare_masks(masks, frame_size)
 
         self.results = []
 
@@ -256,7 +280,7 @@ class VideoMetaData(Extractor):
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
             try:
-                for mask in masks:
+                for mask in cur_masks:
                     frame_gray[mask['y1']:mask['y2'], mask['x1']:mask['x2']] = 0
             except (KeyError, ValueError) as err:
                 self.logger.error("Failed to apply mask %s: %s", mask, err)

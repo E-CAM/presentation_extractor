@@ -1,0 +1,8 @@
+masks:
+    # choice from top or bottom and left or right
+  - location: top-right
+    size_x: 300  # in pixels
+    size_y: 300
+  - location: bottom-right
+    size_x: 1%  # relative value
+    size_y: 1%
