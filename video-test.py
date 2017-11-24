@@ -23,8 +23,6 @@ def get_slide_transitions(video, mask=None, trigger_ratio=5, minimum_total_chang
     to 1, with a default of 6%)
     :param minimum_slide_length: minimum length of a slide (in seconds)
     :param motion_capture_averaging_time: the time over which to build up our average of the background (in seconds)
-    :param seconds_to_delay_grab: number of seconds to delay the frame grab for a trigger (useful if there are slide
-    transition animations and the default 1 second delay is harmless in most cases)
     """
     cap = cv2.VideoCapture(video)
 
@@ -143,7 +141,16 @@ def get_slide_transitions(video, mask=None, trigger_ratio=5, minimum_total_chang
 
     return slides, errors
 
-def save_screenshots(video, slides, path_to_save, seconds_to_delay_screenshot=1):
+def save_snapshots(video, slides, path_to_save, seconds_to_delay_screenshot=1):
+    """
+    Save snapshots of the slide transitions to disk
+    
+    :param video: path to the video
+    :param slides: list of slides (as dicts)
+    :param path_to_save: path in which to save the snapshots    
+    :param seconds_to_delay_grab: number of seconds to delay the frame grab for a trigger (useful if there are slide
+    transition animations and the default 1 second delay is harmless in most cases)
+    """
     cap = cv2.VideoCapture(video)
     for slide in slides:
         # Set the time position of the slide for the grab
@@ -172,4 +179,4 @@ for slide in slides:
     print round(slide['timestamp']/1000)
 
 print slides
-save_screenshots(video, slides, './', seconds_to_delay_screenshot=0)
+save_snapshots(video, slides, './', seconds_to_delay_screenshot=0)
