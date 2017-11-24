@@ -164,7 +164,6 @@ mask = {
     "y2": 1080,
 }
 slides, errors = get_slide_transitions(video, mask=mask)
-errors = []
 if errors:
     print errors
     exit()
