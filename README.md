@@ -31,10 +31,10 @@ this to pass maskings settings or parameters changes. For example:
 The metadata looks like:
 ```json
 {
-    "listslides": [("00:00:00.000", "00:00:08.433", "5a0a048de4b03bcb94a73ba8"), ...],
+    "listslides": [["00:00:00.000", "00:00:08.433", "5a0a048de4b03bcb94a73ba8"], ...],
     "nrslides": 7,
     "algorithm": "advanced",
-    "settings": { <extractor settings> }
+    "settings": { "some_settings": 10 }
 }
 ```
 `listslides` is a list containing begin and end time of a slide with the id of the preview of that slide.
