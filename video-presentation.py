@@ -63,6 +63,13 @@ from pyclowder.sections import upload as sections_upload
 # - https://blog.streamroot.io/encode-multi-bitrate-videos-mpeg-dash-mse-based-media-players/
 # - https://trac.ffmpeg.org/wiki/Encode/H.264
 
+default_settings_advanced = {
+    'trigger_ratio' : 5,
+    'minimum_total_change' : 0.06,
+    'minimum_slide_length' : 20,
+    'motion_capture_averaging_time' : 10,
+}
+
 default_settings_basic = {
     'threshold_cutoff' : 115,
     'trigger' : 0.01,
@@ -290,8 +297,165 @@ class VideoMetaData(Extractor):
 
     def slide_find_advanced(self, filename, masks=None, trigger_ratio=5, minimum_total_change=0.06, minimum_slide_length=20,
                             motion_capture_averaging_time=10):
-        """coming"""
+        """
+        Gather a list of transitions from an input video.
+        The algorithm leverages motion tracking techniques and works well with unprocessed screen capture (heavy compression
+        can introduce false positives). A portion of the image can be masked out for cases where you may have live video
+        superimposed on the frame.
 
+        :param filename: path to the video
+        :param masks: list of area to mask out before doing slide transition detection
+        :param trigger_ratio: the relative ratio of changed pixels that causes a trigger
+        :param minimum_total_change: minimum number of pixels that must change to register a trigger (on a scale between 0
+        to 1, with a default of 6%)
+        :param minimum_slide_length: minimum length of a slide (in seconds)
+        :param motion_capture_averaging_time: the time over which to build up our average of the background (in seconds)
+        :return list with tuples of frame number, timestamp and path to screenshot of slide
+        """
+        if masks is None:
+            masks = []
+        elif not isinstance(masks, list):
+            masks = [masks]
+
+        cap = cv2.VideoCapture(filename)
+        if not cap.isOpened():
+            self.logger.error("Failed to open file %s", filename)
+            return []
+
+        # Grab some basic information about the video
+        width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+        height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        # I would like to change the sampling FPS to something like 5fps since this would mean processing a lot less frames
+        # but using cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index) is actually very slow and not worth the change
+        fps = cap.get(cv2.CAP_PROP_FPS)  # Assuming non-variable FPS
+        num_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+
+        slides = []
+        errors = []
+
+        cur_masks = self.prepare_masks(masks, (int(height), int(width)))
+
+        # Verify the algorithm parameters make sense:
+        #
+        # Verify the mask is set for a sensible region
+        for mask in cur_masks:
+            if (mask['x2'] > width) or (mask['y2'] > height):
+                errors += ["Mask is outside bounds of image!"]
+        # Give some reasonable bounds for the trigger ratio
+        if trigger_ratio < 2 or trigger_ratio > 10:
+            errors += ["Expected a trigger ratio in range from 2 to 10!"]
+        # Give some reasonable bounds for the minimum total change
+        if minimum_total_change < 0 or minimum_total_change > 1:
+            errors += ["Expected a minimum_total_change on a scale from 0.0 to 1.0!"]
+        # Check minimum slide length is less than the length of the video
+        if minimum_slide_length > fps * num_frames:
+            errors += ["The video length is less than the minimum slide length!"]
+        # Check the motion_capture_averaging_time makes sense
+        if motion_capture_averaging_time > minimum_slide_length:
+            errors += ["motion_capture_averaging_time cannot be longer than minimum_slide_length!"]
+
+        if errors:
+            for error in errors:
+                self.logger.error("Algorithm parameter error: %s", error)
+            return []
+
+        # Set lower bound on our pixel change average
+        mask_area = 0
+        for mask in cur_masks:
+            mask_area += (mask['x2'] - mask['x1']) * (mask['y2'] - mask['y1'])
+
+        min_pixel_change_av = (minimum_total_change / trigger_ratio) * \
+                              ((width * height) - mask_area)
+
+        # Set the number of frames for the minimum length of a slide
+        minimum_slide_length_in_frames = int(round(minimum_slide_length * fps))
+
+        #  Allocate space for our average of the changes of the frames in the last averaging_time seconds
+        averaging_frames = int(motion_capture_averaging_time * fps)
+        av_array = np.zeros(averaging_frames, dtype=int)
+
+        # Set up the motion capture algorithm to learn over our set averaging time and output B/W images
+        fgbg = cv2.createBackgroundSubtractorKNN(history=averaging_frames, detectShadows=False)
+
+        # Set the number of frames we can safely ignore after we have a trigger,which is the minimum slide length adjusted
+        # for our averaging_frames frames so that we have the correct average and bg memory
+        ignore_frames = (minimum_slide_length * fps) - averaging_frames
+
+        frame_index = 0
+        previous_trigger_frame = 0
+        average = 0.0
+        percent_processed = 0
+        while frame_index < num_frames:
+            ret, frame = cap.read()
+
+            if not ret:
+                break
+
+            orig_frame = np.copy(frame)
+
+            # Apply our mask
+            try:
+                for mask in cur_masks:
+                    frame[mask['y1']:mask['y2'], mask['x1']:mask['x2'], 0:3] = 0
+            except (KeyError, ValueError) as err:
+                self.logger.error("Failed to apply mask %s: %s", mask, err)
+
+            # Check to we are in the region where a slide will never be extracted (due to min_slide_length). If so, don't do
+            # any of the hard work.
+
+            if frame_index > (previous_trigger_frame + ignore_frames) or frame_index == 0:
+                # Apply the mask and count the white pixels
+                fgmask = fgbg.apply(frame)
+                # If you want to see what the algorithm is looking at, uncomment the below
+                # cv2.imshow('frame', fgmask)
+                # if cv2.waitKey(1) & 0xFF == ord('q'):
+                # break
+
+                # Count the changed pixels (based on the learned background)
+                whites = int(cv2.countNonZero(fgmask))
+
+                # Check if we have a trigger
+                if (frame_index - previous_trigger_frame) > minimum_slide_length_in_frames or frame_index == 0:
+                    if average > min_pixel_change_av:
+                        proxy_average = average
+                    else:
+                        proxy_average = min_pixel_change_av
+
+                    if (whites > trigger_ratio * proxy_average) or frame_index == 0:
+                        # Grab the slide
+                        timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
+                        self.logger.debug("Found slide transition at %s", timestamp)
+
+                        slidepath = os.path.join(self.tempdir, 'slide%05d.png' % (len(slides)+1))
+                        cv2.imwrite(slidepath, orig_frame)
+
+                        slides.append((frame_index, timestamp, slidepath))
+
+                        previous_trigger_frame = frame_index
+                        # Restart the averaging process
+                        average = 0.0
+                        av_array[:] = 0
+
+                # Update our average and the associated array. Since we know that the average is restarted after every
+                # trigger things are sequential and it is safe to use modulo here.
+                if previous_trigger_frame != frame_index:
+                    # First remove the value of the previous entry from the average
+                    average -= av_array[frame_index % averaging_frames] / float(averaging_frames)
+                    # Add the new value to the array
+                    av_array[frame_index % averaging_frames] = whites
+                    # Update the average
+                    average += av_array[frame_index % averaging_frames] / float(averaging_frames)
+
+            # Let people know how far along we are
+            frame_index += 1
+            if (frame_index % round(num_frames/100.0)) == 0:
+                percent_processed += 1
+                self.logger.debug("Processed at %3d %%", percent_processed)
+
+        slides.append((frame_index, cap.get(cv2.CAP_PROP_POS_MSEC), None))
+        cap.release()
+
+        return slides
 
     def slide_find_basic(self, filename, masks=None, threshold_cutoff=115, trigger=0.01):  # pylint: disable=too-many-locals
         """
