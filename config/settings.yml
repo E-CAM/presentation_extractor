@@ -6,3 +6,16 @@ masks:
   - location: bottom-right
     size_x: 1%  # relative value
     size_y: 1%
+
+slides:
+  - algorithm: advanced  # the default
+    trigger_ratio: 5
+    minimum_total_change: 0.06
+    minimum_slide_length: 20
+    motion_capture_averaging_time: 10
+
+# The alternative:
+#
+#  - algorithm: basic
+#    threshold_cutoff: 115
+#    trigger: 0.01
