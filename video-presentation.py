@@ -63,6 +63,10 @@ from pyclowder.sections import upload as sections_upload
 # - https://blog.streamroot.io/encode-multi-bitrate-videos-mpeg-dash-mse-based-media-players/
 # - https://trac.ffmpeg.org/wiki/Encode/H.264
 
+default_settings_basic = {
+    'threshold_cutoff' : 115,
+    'trigger' : 0.01,
+}
 
 class VideoMetaData(Extractor):
     """Extract slide transitions in a video"""
@@ -77,15 +81,16 @@ class VideoMetaData(Extractor):
         logging.getLogger('__main__').setLevel(logging.DEBUG)
         self.logger = logging.getLogger(__name__)
 
-        self.results = None
+        self.results = []
         self.tempdir = None
         self.masksettings = None
-        self.read_mask_settings()
+        self.algorithmsettings = None
+        self.read_settings()
 
-    def read_mask_settings(self, filename=None):
+    def read_settings(self, filename=None):
         """
-        Read the default settings for masking from the give file.
-        :param filename: optional path to settings file (defaults to 'settings.json' in the current directory)
+        Read the default settings for the extractor from the given file.
+        :param filename: optional path to settings file (defaults to 'settings.yml' in the current directory)
         """
         if filename is None:
             filename = os.path.join(os.path.dirname(os.path.realpath(__file__)), "config", "settings.yml")
@@ -98,10 +103,12 @@ class VideoMetaData(Extractor):
             with open(filename, 'r') as settingsfile:
                 settings = yaml.safe_load(settingsfile)
                 self.masksettings = settings.get('masks', [])
+                algorithmsettings = settings.get('slides')
+                self.algorithmsettings = algorithmsettings[0] if algorithmsettings else {}
         except (IOError, yaml.YAMLError) as err:
             self.logger.error("Failed to read or parse %s as settings file: %s", filename, err)
 
-        self.logger.debug("Read settings from %s: %s", filename, self.masksettings)
+        self.logger.debug("Read settings from %s: %s + %s", filename, self.masksettings, self.algorithmsettings)
 
     def check_message(self, connector, host, secret_key, resource, parameters):  # pylint: disable=unused-argument,too-many-arguments
         """Check if the extractor should download the file or ignore it."""
@@ -121,44 +128,20 @@ class VideoMetaData(Extractor):
         self.logger.debug("Received parameters: %s", parameters)
 
         # we reread the settings on every file we process
-        self.read_mask_settings()
+        self.read_settings()
 
         usersettings = json.loads(parameters.get('parameters', '{}'))
         usermask = usersettings.get('masks')
         if isinstance(usermask, (dict, list)):
             self.masksettings = usermask
 
+        userslides = usersettings.get('slides')
+        if isinstance(userslides, dict):
+            self.algorithmsettings.update(userslides)
+
         self.tempdir = tempfile.mkdtemp(prefix='clowder-video-presentation')
 
         self.find_slides_transitions(connector, host, secret_key, resource, masks=self.masksettings)
-
-        # first and last frame will always be in self.results
-        if self.results and len(self.results) > 2:
-            slidesmeta = {
-                'nrslides': len(self.results) - 1,  # the last frame always gets added too
-                'listslides': [],
-            }
-
-            # first chapter starts at.
-            # Big assumption: the length of the movie is less then 24 hours
-            prev_time = datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(milliseconds=self.results[0][1])
-            previewid = self.results[0][2]
-
-            # the WebVTT time format needs to be 00:00:00.000
-            format_str = "%H:%M:%S.%f"
-
-            for _, time_idx, new_previewid in self.results[1:]:
-                begin_delta = datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(milliseconds=time_idx)
-                # microseconds always get printed as 6 digits passed with zeros, so we delete the last 3 digits
-                slidesmeta['listslides'].append((str(prev_time.strftime(format_str)[:-3]), str(begin_delta.strftime(format_str)[:-3]), str(previewid)))
-                previewid = new_previewid
-                prev_time = begin_delta
-
-            metadata = self.get_metadata(slidesmeta, 'file', resource['id'], host)
-            self.logger.debug("New metadata: %s", metadata)
-
-            # upload metadata
-            pyclowder.files.upload_metadata(connector, host, secret_key, resource['id'], metadata)
 
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
@@ -198,8 +181,8 @@ class VideoMetaData(Extractor):
             """handle % values"""
             if str(size).endswith('%'):
                 return int(max_size * float(size.strip('%'))/100.0)
-            else:
-                return int(size)
+
+            return int(size)
 
         parsed_masks = []
         for mask in masks:
@@ -234,26 +217,102 @@ class VideoMetaData(Extractor):
         return parsed_masks
 
     def find_slides_transitions(self, connector, host, secret_key, resource, masks=None):  # pylint: disable=unused-argument,too-many-arguments
+        """find slides"""
+
+        if self.algorithmsettings.get('algorithm', '') == "basic":
+            settings = dict(default_settings_basic)  # make sure it's a copy
+            settings.update(self.algorithmsettings)
+            del settings['algorithm']  # not an argument for the method
+            self.logger.debug("Using basic algorithm for finding slides. settings: %s", settings)
+            results = self.slide_find_basic(resource['local_paths'][0], masks=masks, **settings)
+        else:
+            settings = dict(default_settings_advanced)  # make sure it's a copy
+            settings.update(self.algorithmsettings)
+            del settings['algorithm']  # not an argument for the method
+            self.logger.debug("Using advanced algorithm for finding slides. settings: %s", settings)
+            results = self.slide_find_advanced(resource['local_paths'][0], masks=masks, **settings)
+
+        self.results = []
+
+        slidesmeta = {
+            'nrslides': 0,
+            'listslides': [],
+            'algorithm': self.algorithmsettings.get('algorithm', 'advanced'),
+            'settings': settings,
+        }
+        self.logger.debug("tmp results: %s", results)
+
+        for idx, (frame_idx, time_idx, slidepath) in enumerate(results):
+            # last second/frame always gets added for WebVTT but hasn't got a slidepath set
+            if not slidepath:
+                self.results.append((frame_idx, time_idx, None))
+                continue
+
+            # Create section for file
+            sectionid = sections_upload(connector, host, secret_key, {'file_id': resource['id']})
+            slidemeta = {
+                'section_id': sectionid,
+            }
+            description = "Slide %2d at %s" % (idx + 1, datetime.timedelta(milliseconds=time_idx))
+            # upload preview & associated it with the section
+            previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], slidepath, slidemeta)
+            # add a description to every preview
+            pyclowder.sections.upload_description(connector, host, secret_key, sectionid, {'description': description})
+
+            self.results.append((frame_idx, time_idx, previewid))
+
+        self.logger.debug("final results: %s", self.results)
+
+        # first and last frame will always be in self.results
+        if self.results and len(self.results) > 1:
+            slidesmeta['nrslides'] = len(self.results) - 1,  # the last frame always gets added too
+
+            # first chapter starts at.
+            # Big assumption: the length of the movie is less then 24 hours
+            prev_time = datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(milliseconds=self.results[0][1])
+            previewid = self.results[0][2]
+
+            # the WebVTT time format needs to be 00:00:00.000
+            format_str = "%H:%M:%S.%f"
+
+            for _, time_idx, new_previewid in self.results[1:]:
+                begin_delta = datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(milliseconds=time_idx)
+                # microseconds always get printed as 6 digits passed with zeros, so we delete the last 3 digits
+                slidesmeta['listslides'].append((str(prev_time.strftime(format_str)[:-3]), str(begin_delta.strftime(format_str)[:-3]), str(previewid)))
+                previewid = new_previewid
+                prev_time = begin_delta
+
+        metadata = self.get_metadata(slidesmeta, 'file', resource['id'], host)
+        self.logger.debug("New metadata: %s", metadata)
+
+        # upload metadata
+        pyclowder.files.upload_metadata(connector, host, secret_key, resource['id'], metadata)
+
+    def slide_find_advanced(self, filename, masks=None, trigger_ratio=5, minimum_total_change=0.06, minimum_slide_length=20,
+                            motion_capture_averaging_time=10):
+        """coming"""
+
+
+    def slide_find_basic(self, filename, masks=None, threshold_cutoff=115, trigger=0.01):  # pylint: disable=too-many-locals
         """
-        Find slide transitions in a video. Currently uses one method:
+        Find slide transitions in a video. Method:
             - Convert to greyscale
             - Create a diff of two consecutive frames
             - Check how many pixels have changed 'significantly'
             - If enough: new slide
 
         :param masks: list of area to mask out before doing slide transition detection
-        :return list with tuples of frame number, timestamp and id of a preview of every found slide transition.
+        :return list with tuples of frame number, timestamp and path to screenshot of slide
         """
         if masks is None:
             masks = []
         elif not isinstance(masks, list):
             masks = [masks]
 
-        self.logger.debug("Slide transition detection started on %s", resource['local_paths'][0])
-        cap = cv2.VideoCapture(resource['local_paths'][0])
+        cap = cv2.VideoCapture(filename)
         if not cap.isOpened():
-            self.logger.error("Failed to open file %s", resource['local_paths'][0])
-            return
+            self.logger.error("Failed to open file %s", filename)
+            return []
 
         fps = int(cap.get(cv2.CAP_PROP_FPS))  # assume it's constant and we convert to integer
         nFrames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -265,7 +324,7 @@ class VideoMetaData(Extractor):
 
         cur_masks = self.prepare_masks(masks, frame_size)
 
-        self.results = []
+        results = []
 
         # Start processing from the first frame
         while True:
@@ -287,27 +346,15 @@ class VideoMetaData(Extractor):
 
             # Find the number of pixels that have (significantly) changed since the last frame
             frame_diff = cv2.absdiff(frame_gray, prev_frame)
-            _, frame_thres = cv2.threshold(frame_diff, 115, 255, cv2.THRESH_BINARY)
+            _, frame_thres = cv2.threshold(frame_diff, threshold_cutoff, 255, cv2.THRESH_BINARY)
             d_colors = float(np.count_nonzero(frame_thres)) / frame_gray.size
 
-            if d_colors > 0.01:
+            if d_colors > trigger:
                 self.logger.debug("Found slide transition at frame %d, time: %s", frame_idx, time_real)
-                slidepath = os.path.join(self.tempdir, 'slide%05d.png' % (len(self.results)+1))
+                slidepath = os.path.join(self.tempdir, 'slide%05d.png' % (len(results)+1))
                 cv2.imwrite(slidepath, frame)
 
-                # Create section for file
-                sectionid = sections_upload(connector, host, secret_key, {'file_id': resource['id']})
-                slidemeta = {
-                    'section_id': sectionid,
-                    'width': str(float(frame.shape[1])),  # this doesn't seem to work...
-                    'height': str(float(frame.shape[0])),
-                }
-                description = "Slide %2d at %s" % (len(self.results)+1, time_real)
-                # upload preview & associated it with the section
-                previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], slidepath, slidemeta)
-                # add a description to every preview
-                pyclowder.sections.upload_description(connector, host, secret_key, sectionid, {'description': description})
-                self.results.append((frame_idx, time_idx, previewid))
+                results.append((frame_idx, time_idx, slidepath))
 
             prev_frame = frame_gray
 
@@ -315,8 +362,10 @@ class VideoMetaData(Extractor):
                 self.logger.debug("Slide transition detection %.2f%% done\t%s", float(frame_idx)/nFrames*100, time_real)
 
 
-        self.results.append((frame_idx, time_idx, None))
+        results.append((frame_idx, time_idx, None))
         cap.release()
+
+        return results
 
 
 if __name__ == "__main__":
