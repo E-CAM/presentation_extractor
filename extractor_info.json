@@ -12,7 +12,9 @@
     "contexts": [
     {
         "nrslides": "http://schema.org/Integer",
-        "listslides": "http://schema.org/ItemList"
+        "listslides": "http://schema.org/ItemList",
+        "algorithm": "http://schema.org/Text",
+        "settings": "http://schema.org/ItemList"
     }
   ],
   "process": {
