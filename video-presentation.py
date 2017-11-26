@@ -229,13 +229,11 @@ class VideoMetaData(Extractor):
         if self.algorithmsettings.get('algorithm', '') == "basic":
             settings = dict(default_settings_basic)  # make sure it's a copy
             settings.update(self.algorithmsettings)
-            del settings['algorithm']  # not an argument for the method
             self.logger.debug("Using basic algorithm for finding slides. settings: %s", settings)
             results = self.slide_find_basic(resource['local_paths'][0], masks=masks, **settings)
         else:
             settings = dict(default_settings_advanced)  # make sure it's a copy
             settings.update(self.algorithmsettings)
-            del settings['algorithm']  # not an argument for the method
             self.logger.debug("Using advanced algorithm for finding slides. settings: %s", settings)
             results = self.slide_find_advanced(resource['local_paths'][0], masks=masks, **settings)
 
@@ -295,8 +293,7 @@ class VideoMetaData(Extractor):
         # upload metadata
         pyclowder.files.upload_metadata(connector, host, secret_key, resource['id'], metadata)
 
-    def slide_find_advanced(self, filename, masks=None, trigger_ratio=5, minimum_total_change=0.06, minimum_slide_length=20,
-                            motion_capture_averaging_time=10):
+    def slide_find_advanced(self, filename, **kwargs):
         """
         Gather a list of transitions from an input video.
         The algorithm leverages motion tracking techniques and works well with unprocessed screen capture (heavy compression
@@ -312,10 +309,17 @@ class VideoMetaData(Extractor):
         :param motion_capture_averaging_time: the time over which to build up our average of the background (in seconds)
         :return list with tuples of frame number, timestamp and path to screenshot of slide
         """
-        if masks is None:
-            masks = []
-        elif not isinstance(masks, list):
+        options = dict(default_settings_advanced)
+        options.update(kwargs)
+
+        masks = options.get('masks', [])
+        if not isinstance(masks, list):
             masks = [masks]
+
+        trigger_ratio = options.get('trigger_ratio')
+        minimum_total_change = options.get('minimum_total_change')
+        minimum_slide_length = options.get('minimum_slide_length')
+        motion_capture_averaging_time = options.get('motion_capture_averaging_time')
 
         cap = cv2.VideoCapture(filename)
         if not cap.isOpened():
@@ -457,7 +461,7 @@ class VideoMetaData(Extractor):
 
         return slides
 
-    def slide_find_basic(self, filename, masks=None, threshold_cutoff=115, trigger=0.01):  # pylint: disable=too-many-locals
+    def slide_find_basic(self, filename, **kwargs):  # pylint: disable=too-many-locals
         """
         Find slide transitions in a video. Method:
             - Convert to greyscale
@@ -466,12 +470,19 @@ class VideoMetaData(Extractor):
             - If enough: new slide
 
         :param masks: list of area to mask out before doing slide transition detection
+        :parm threshold_cutoff: threshold to mark a pixel change significant
+        :param trigger: fraction of pixels that need to be changed significantly to trigger new slide
         :return list with tuples of frame number, timestamp and path to screenshot of slide
         """
-        if masks is None:
-            masks = []
-        elif not isinstance(masks, list):
+        options = dict(default_settings_basic)
+        options.update(kwargs)
+
+        masks = options.get('masks', [])
+        if not isinstance(masks, list):
             masks = [masks]
+
+        threshold_cutoff = options.get('threshold_cutoff')
+        trigger = options.get('trigger')
 
         cap = cv2.VideoCapture(filename)
         if not cap.isOpened():
