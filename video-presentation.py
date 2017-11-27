@@ -235,12 +235,14 @@ class VideoMetaData(Extractor):
 
         if self.algorithmsettings.get('algorithm', '') == "basic":
             settings = dict(default_settings_basic)  # make sure it's a copy
-            settings.update(self.algorithmsettings)
+            settings.update(dict([(a, b) for a, b in self.algorithmsettings.iteritems()
+                                  if a in default_settings_basic.keys()]))
             self.logger.debug("Using basic algorithm for finding slides. settings: %s", settings)
             results = self.slide_find_basic(resource['local_paths'][0], masks=masks, **settings)
         else:
             settings = dict(default_settings_advanced)  # make sure it's a copy
-            settings.update(self.algorithmsettings)
+            settings.update(dict([(a, b) for a, b in self.algorithmsettings.iteritems()
+                                  if a in default_settings_advanced.keys()]))
             self.logger.debug("Using advanced algorithm for finding slides. settings: %s", settings)
             results = self.slide_find_advanced(resource['local_paths'][0], masks=masks, **settings)
 
