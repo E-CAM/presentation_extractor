@@ -29,16 +29,23 @@ from pyclowder.sections import upload as sections_upload
 #    "y2": 720,
 # }
 #
-# x1..x2 and y1..y2 is mask out in the frame. In this example, it"s a box in the top right.
-# Alternativily, you can also pass percentages:
+# x1..x2 and y1..y2 is mask out in the frame. In this example, it"s a box in the top right. However, 
+# there is an alternative format which is easier to use (will be converted to the above one internally):
+#
 # {
-#    "x1": "5%",
-#    "y1": "10%",
-#    "x2": "2%",
-#    "y2": "7%",
+#     "masks": [
+#     {
+#         "location": "top-right",
+#         "size_x": 300,
+#         "size_y": 300
+#     },
+#     {
+#         "location": "bottom-left",
+#         "size_x": "1%",
+#         "size_y": "2%"
+#     }]
 # }
-# Which will be converted to the previous form based on the frame resolution. If you leave
-# out x2 and y2, it will be assumed they are 100%
+
 
 # Comments for DASH:
 #
