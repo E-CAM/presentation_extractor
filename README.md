@@ -39,7 +39,26 @@ The metadata looks like:
 ```
 `listslides` is a list containing begin and end time of a slide with the id of the preview of that slide.
 
-# Docker
+
+# Installing
+
+The extractor needs the python bindings of [OpenCV](http://opencv.org), which must be compiled with support for
+ffmpeg (gstreamer should probably also work). The easiest thing to do is use the docker container for it.
+The next section explains how to build and run it. The main Clowder repository has a `docker-compose.yml` for 
+Clowder + extractors. This extractor can be directly added. You should adjust the `extractor_info.json` file 
+to point to your running Clowder instance for the extractor to correctly register. It currently only reacts on
+file of the type `video/slidespresentation` but with manual submission it accepts anything. 
+To define this filetype you must add/edit the file `mimetypes.conf` in your Clowder 
+config directory (either `conf` or `custom`) and add:
+```
+mimetype.slidespresentation=video/slidespresentation
+mimetype.SLIDESPRESENTATION=video/slidespresentation
+```
+This will mark files ending with `.slidespresentation` as type `video/slidespresentation`.
+
+For the previewer you can find instructions in the `previewer` directory
+
+## Docker
 
 This extractor is ready to be run as a docker container. To build the docker container run:
 

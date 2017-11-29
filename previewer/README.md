@@ -15,3 +15,6 @@ be picked up automatically by Clowder. Furthermore you need to add the `video/sl
 mimetype.slidespresentation=video/slidespresentation
 mimetype.SLIDESPRESENTATION=video/slidespresentation
 ```
+
+Currently it also requires a patch to Clowder itself: https://github.com/ncsa/clowder/pull/2
+As an alternative, you can also hard code the url for Clowder on Line 35 of `videopresentation.js`
