@@ -33,6 +33,8 @@
     var extractor_req = $.ajax({
         type: "GET",
         url: jsRoutes.api.Files.getMetadataJsonLD(fileId, "ncsa.videopresentation/1.0").url,
+        // if Clowder API doesn't support above call, you can use:
+        // url: "/api/files/" + confId + "/metadata.jsonld?extractor=ncsa.videopresentation/1.0",
         dataType: "json"
     });
 
