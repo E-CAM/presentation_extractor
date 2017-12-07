@@ -76,7 +76,7 @@
         // Thus, show the file as a single video.
         if(confId == fileId){
             $(useTab).append(
-                "<video id='mypresentationvideo' class='video-js vjs-fluid vjs-default-skin' controls preload='auto' data-setup='{}'>" +
+                "<video  crossorigin='anonymous' id='mypresentationvideo' class='video-js vjs-fluid vjs-default-skin' controls preload='auto' data-setup='{}'>" +
                 "<source src='" + referenceUrl + "' type='video/mp4'>" +
 //                "<track kind='chapters' src='data:text/plain;base64,"+ window.btoa(webvtt) +"' default>" +
                 "<p class='vjs-no-js'>" +
