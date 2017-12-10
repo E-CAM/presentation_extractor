@@ -115,7 +115,7 @@ class VideoMetaData(Extractor):
 
         try:
             with open(filename, 'r') as settingsfile:
-                settings = yaml.safe_load(settingsfile)
+                settings = yaml.safe_load(settingsfile) or {}
                 self.masksettings = settings.get('masks', [])
                 algorithmsettings = settings.get('slides')
                 self.algorithmsettings = algorithmsettings[0] if algorithmsettings else {}
