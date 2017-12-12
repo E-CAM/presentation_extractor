@@ -286,6 +286,7 @@ class VideoMetaData(Extractor):
         mp4_preview, webm_preview = self.create_video_previews(resource['local_paths'][0])
         mp4_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], mp4_preview, {})
         webm_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], webm_preview, {})
+
         self.results = []
 
         slidesmeta = {
