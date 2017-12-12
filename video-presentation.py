@@ -282,7 +282,7 @@ class VideoMetaData(Extractor):
             self.logger.debug("Using advanced algorithm for finding slides. settings: %s", settings)
             results = self.slide_find_advanced(resource['local_paths'][0], masks=masks, **settings)
 
-        # Create and upload the previews
+        # Create and upload the compressed previews
         mp4_preview, webm_preview = self.create_video_previews(resource['local_paths'][0])
         mp4_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], mp4_preview, {})
         webm_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], webm_preview, {})
