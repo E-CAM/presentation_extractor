@@ -77,7 +77,7 @@ default_settings_advanced = {
     'minimum_total_change' : 0.06,
     'minimum_slide_length' : 20,
     'motion_capture_averaging_time' : 10,
-    'msec_to_delay_screenshot' : 500,
+    'msec_to_delay_screenshot' : 1000,
 }
 
 default_settings_basic = {
