@@ -234,11 +234,14 @@ class VideoMetaData(Extractor):
 
     def create_video_previews(self, filename):
         """Create mp4 and webm heavily compressed previews of the presentation to use in the previewer"""
+
+        # Let's not be greedy, use half available cores since we are probably in a docker container
         encoding_threads = multiprocessing.cpu_count()
-        # let's not be greedy, use half available cores
         if encoding_threads > 1:
             encoding_threads = int(np.ceil(encoding_threads/2))
-        ffmpeg_stub = "ffmpeg -loglevel error -y -threads " + encoding_threads + " -i " + filename
+
+        ffmpeg_stub = "ffmpeg -loglevel error -y -i \"" + os.path.abspath(filename) + "\" -threads " + \
+                      str(encoding_threads)
         # We use the same audio settings for both videos
         no_audio = " -an "
         audio = " -acodec libvorbis -b:a 64k "
