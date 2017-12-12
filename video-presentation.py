@@ -77,6 +77,7 @@ default_settings_advanced = {
     'minimum_total_change' : 0.06,
     'minimum_slide_length' : 20,
     'motion_capture_averaging_time' : 10,
+    'msec_to_delay_screenshot' : 500,
 }
 
 default_settings_basic = {
@@ -256,18 +257,18 @@ class VideoMetaData(Extractor):
         # First let's do mp4
         ffmpeg_command = ffmpeg_stub + mp4_settings + no_audio + "-pass 1 -f mp4 /dev/null"
         subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
-        ffmpeg_command = ffmpeg_stub + mp4_settings + audio + "-pass 2 -f mp4 preview.mp4"
+        ffmpeg_command = ffmpeg_stub + mp4_settings + audio + "-pass 2 -f mp4 preview.mp4.preview"
         subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
         # Now do webm
         ffmpeg_command = ffmpeg_stub + webm_settings + no_audio + "-pass 1 -f webm /dev/null"
         subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
-        ffmpeg_command = ffmpeg_stub + webm_settings + audio + "-pass 2 -f webm preview.webm"
+        ffmpeg_command = ffmpeg_stub + webm_settings + audio + "-pass 2 -f webm preview.webm.preview"
         subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
 
         # Change back to the original directory
         os.chdir(currentdir)
 
-        return os.path.join(self.tempdir, "preview.mp4"), os.path.join(self.tempdir, "preview.webm")
+        return os.path.join(self.tempdir, "preview.mp4.preview"), os.path.join(self.tempdir, "preview.webm.preview")
 
     def find_slides_transitions(self, connector, host, secret_key, resource, masks=None):  # pylint: disable=unused-argument,too-many-arguments
         """find slides"""
@@ -361,6 +362,8 @@ class VideoMetaData(Extractor):
         to 1, with a default of 6%)
         :param minimum_slide_length: minimum length of a slide (in seconds)
         :param motion_capture_averaging_time: the time over which to build up our average of the background (in seconds)
+        :param msec_to_delay_screenshot: The amount of delay before taking a screenshot (good for animated slide
+        transitions) in milliseconds
         :return list with tuples of frame number, timestamp and path to screenshot of slide
         """
         options = dict(default_settings_advanced)
@@ -374,6 +377,7 @@ class VideoMetaData(Extractor):
         minimum_total_change = options.get('minimum_total_change')
         minimum_slide_length = options.get('minimum_slide_length')
         motion_capture_averaging_time = options.get('motion_capture_averaging_time')
+        msec_to_delay_screenshot = options.get('msec_to_delay_screenshot')
 
         cap = cv2.VideoCapture(filename)
         if not cap.isOpened():
@@ -484,8 +488,8 @@ class VideoMetaData(Extractor):
                         timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
                         self.logger.debug("Found slide transition at %s", timestamp)
 
+                        # Set the path now, but write the image later
                         slidepath = os.path.join(self.tempdir, 'slide%05d.png' % (len(slides)+1))
-                        cv2.imwrite(slidepath, orig_frame)
 
                         slides.append((frame_index, timestamp, slidepath))
 
@@ -510,7 +514,17 @@ class VideoMetaData(Extractor):
                 percent_processed += 1
                 self.logger.debug("Processed at %3d %%", percent_processed)
 
-        slides.append((frame_index, cap.get(cv2.CAP_PROP_POS_MSEC), None))
+        # Now that we know all the transitions, grab the slide image with a configurable offset
+        final_timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
+        for slide in slides:
+            # Set the time position of the slide for the grab
+            cap.set(cv2.CAP_PROP_POS_MSEC, slide[1] + msec_to_delay_screenshot)
+            # Grab the image
+            _, frame = cap.read()
+            # Save the image
+            cv2.imwrite(slide[2], frame)
+        # Add am empty slide to hold the terminating timestamp
+        slides.append((frame_index, final_timestamp, None))
         cap.release()
 
         return slides
