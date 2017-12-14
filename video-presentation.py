@@ -129,9 +129,9 @@ class VideoMetaData(Extractor):
 
     def check_message(self, connector, host, secret_key, resource, parameters):  # pylint: disable=unused-argument,too-many-arguments
         """Check if the extractor should download the file or ignore it."""
-        if not resource['file_ext'] == '.slidespresentation':
+        if not resource['file_ext'] == '.mp4' and not resource['file_ext'] == '.webm':
             if parameters.get('action', '') != 'manual-submission':
-                self.logger.debug("Unknown filetype, skipping")
+                self.logger.debug("Unknown filetype %s (default support is for mp4/webm, other filestypes must be manually submitted), skipping", resource['file_ext'])
                 return pyclowder.utils.CheckMessage.ignore
             else:
                 self.logger.debug("Unknown filetype, but scanning by manual request")
@@ -245,7 +245,8 @@ class VideoMetaData(Extractor):
                       str(encoding_threads)
         # We use the same audio settings for both videos
         no_audio = " -an "
-        audio = " -acodec libvorbis -b:a 64k "
+        mp4_audio = " -strict -2 -acodec aac -ac 1 -b:a 64k "
+        webm_audio = " -acodec libopus -ac 1 -b:a 64k "
         # Use very heavy compression since most of what we deal with is 2d without shadows
         mp4_settings = " -vcodec libx264 -preset medium -b:v 96k -qmax 42 -maxrate 250k "
         webm_settings = " -vcodec libvpx -quality good -b:v 96k -crf 10 -qmin 0 -qmax 42 -maxrate 250k -bufsize 1000k "
@@ -256,13 +257,14 @@ class VideoMetaData(Extractor):
 
         # First let's do mp4
         ffmpeg_command = ffmpeg_stub + mp4_settings + no_audio + "-pass 1 -f mp4 /dev/null"
+        # using the shell is a potential security hazard but our filenames are sanitized by Clowder
         subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
-        ffmpeg_command = ffmpeg_stub + mp4_settings + audio + "-pass 2 -f mp4 preview.mp4.preview"
+        ffmpeg_command = ffmpeg_stub + mp4_settings + mp4_audio + "-pass 2 -f mp4 preview.mp4.preview"
         subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
         # Now do webm
         ffmpeg_command = ffmpeg_stub + webm_settings + no_audio + "-pass 1 -f webm /dev/null"
         subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
-        ffmpeg_command = ffmpeg_stub + webm_settings + audio + "-pass 2 -f webm preview.webm.preview"
+        ffmpeg_command = ffmpeg_stub + webm_settings + webm_audio + "-pass 2 -f webm preview.webm.preview"
         subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
 
         # Change back to the original directory
@@ -309,15 +311,17 @@ class VideoMetaData(Extractor):
                 continue
 
             # Create section for file
-            sectionid = sections_upload(connector, host, secret_key, {'file_id': resource['id']})
-            slidemeta = {
-                'section_id': sectionid,
-            }
-            description = "Slide %2d at %s" % (idx + 1, datetime.timedelta(milliseconds=time_idx))
+            #sectionid = sections_upload(connector, host, secret_key, {'file_id': resource['id']})
+            #slidemeta = {
+            #    'section_id': sectionid,
+            #}
+            #description = "Slide %2d at %s" % (idx + 1, datetime.timedelta(milliseconds=time_idx))
             # upload preview & associated it with the section
-            previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], slidepath, slidemeta)
+            if idx == 0:
+                pyclowder.files.upload_thumbnail(connector, host, secret_key, resource['id'], slidepath)
+            previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], slidepath, {})
             # add a description to every preview
-            pyclowder.sections.upload_description(connector, host, secret_key, sectionid, {'description': description})
+            #pyclowder.sections.upload_description(connector, host, secret_key, sectionid, {'description': description})
 
             self.results.append((frame_idx, time_idx, previewid))
 
@@ -330,6 +334,7 @@ class VideoMetaData(Extractor):
             # first chapter starts at.
             # Big assumption: the length of the movie is less then 24 hours
             prev_time = datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(milliseconds=self.results[0][1])
+            prev_time_msec = self.results[0][1]
             previewid = self.results[0][2]
 
             # the WebVTT time format needs to be 00:00:00.000
@@ -338,9 +343,10 @@ class VideoMetaData(Extractor):
             for _, time_idx, new_previewid in self.results[1:]:
                 begin_delta = datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(milliseconds=time_idx)
                 # microseconds always get printed as 6 digits passed with zeros, so we delete the last 3 digits
-                slidesmeta['listslides'].append((str(prev_time.strftime(format_str)[:-3]), str(begin_delta.strftime(format_str)[:-3]), str(previewid)))
+                slidesmeta['listslides'].append((str(prev_time.strftime(format_str)[:-3]), str(begin_delta.strftime(format_str)[:-3]), str(previewid), str(prev_time_msec / 1000)))
                 previewid = new_previewid
                 prev_time = begin_delta
+                prev_time_msec = time_idx
 
         metadata = self.get_metadata(slidesmeta, 'file', resource['id'], host)
         self.logger.debug("New metadata: %s", metadata)
@@ -522,7 +528,7 @@ class VideoMetaData(Extractor):
             # Grab the image
             _, frame = cap.read()
             # Save the image
-            cv2.imwrite(slide[2], frame)
+            cv2.imwrite(slide[2], frame, [cv2.IMWRITE_PNG_COMPRESSION, 9])
         # Add am empty slide to hold the terminating timestamp
         slides.append((frame_index, final_timestamp, None))
         cap.release()
