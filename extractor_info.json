@@ -14,7 +14,8 @@
         "nrslides": "http://schema.org/Integer",
         "listslides": "http://schema.org/ItemList",
         "algorithm": "http://schema.org/Text",
-        "settings": "http://schema.org/ItemList"
+        "settings": "http://schema.org/ItemList",
+        "previews": "http://schema.org/ItemList"
     }
   ],
   "process": {
