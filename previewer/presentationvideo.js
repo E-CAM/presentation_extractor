@@ -115,6 +115,7 @@
         // This also means the "preview" is a single video and not a multi-option cross-browser compatibility combination,
         // as those can only be generated as previews by the system. 
         // Thus, show the file as a single video.
+        var sources;
         if(confId == fileId){
             try {
                 sources = "<source src='" + jsRoutes.api.Previews.download(extract_data[0][0]['content']['previews']['mp4']).url + "' type='video/mp4'>";
