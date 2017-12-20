@@ -1,10 +1,3 @@
-// add a function to skip to certain point
-function video_jump(seconds) {
-  videojs('mypresentationvideo').play();
-  videojs('mypresentationvideo').pause();
-  videojs('mypresentationvideo').currentTime(seconds);
-  videojs('mypresentationvideo').play();
-};
 (function ($, Configuration) {
     console.log("Video presentation previewer for " + Configuration.id);
 
@@ -22,20 +15,17 @@ function video_jump(seconds) {
         dataType: "json"
     });
 
-    // loading Video.js + plugins
-    // we start with the stylesheets
-    var s = document.createElement("link");
-    s.rel = "stylesheet";
-    s.type = "text/css";
-    s.href =  Configuration.previewer + "/video-js.css";
-    $(useTab).append(s);
+    // Loading Video.js, the chapter plugin and our carousel for the slide
 
-    s = document.createElement("link");
-    s.rel = "stylesheet";
-    s.type = "text/css";
-    s.href = Configuration.previewer + "/videojs-chapter-thumbnails/videojs.chapter-thumbnails.min.css";
-    $(useTab).append(s);
-
+    // Let's start with the stylesheets needed
+    var i, len, myCssFiles = [ "/video-js.css", "/videojs-chapter-thumbnails/videojs.chapter-thumbnails.min.css", "/slick/slick.css", "/slick/slick-theme.css", "/slickconf.css" ];
+    for (len = myCssFiles.length, i=0; i<len; ++i) {
+        var s = document.createElement("link");
+        s.rel = "stylesheet";
+        s.type = "text/css";
+        s.href =  Configuration.previewer + myCssFiles[i];
+        $(useTab).append(s);
+    }
     $(useTab).append("<br/>");
 
     // load Video.js
@@ -55,22 +45,6 @@ function video_jump(seconds) {
     });
 
     // load slick to handle navigation
-    // First the stylesheets
-    s = document.createElement("link");
-    s.rel = "stylesheet";
-    s.type = "text/css";
-    s.href = Configuration.previewer + "/slick/slick.css";
-    $(useTab).append(s);
-    s = document.createElement("link");
-    s.rel = "stylesheet";
-    s.type = "text/css";
-    s.href = Configuration.previewer + "/slick/slick-theme.css";
-    $(useTab).append(s);
-    s = document.createElement("link");
-    s.rel = "stylesheet";
-    s.type = "text/css";
-    s.href = Configuration.previewer + "/slickconf.css";
-    $(useTab).append(s);
     // load slick.js
     var slickjs_req = $.ajax({
         url: Configuration.previewer + "/slick/slick.min.js",
@@ -87,24 +61,33 @@ function video_jump(seconds) {
     });
 
     // when all the plugins and the JSON-LD are loaded, we can show the previewer
-    $.when(extractor_req, videojs_thumb_plugin, slickconf_req).done(function(extract_data, videojs_plugin){
+    $.when(extractor_req, videojs_thumb_plugin, slickconf_req).done(function(extract_data, videojs_plugin, slider_plugin){
         console.log("Creating the video presentation previewer");
         console.log(extract_data);
 
+        // inject our function to navigate through the video
+        jQuery.video_jump = function video_jump(seconds) {
+            videojs('mypresentationvideo').play();
+            videojs('mypresentationvideo').pause();
+            videojs('mypresentationvideo').currentTime(seconds);
+            videojs('mypresentationvideo').play();
+        };
+
         // initialise our slider
-        navSlider = document.createElement("section");
+        var navSlider = document.createElement("section");
         navSlider.className = "center slider";
-        mainSlider = document.createElement("section");
+        var mainSlider = document.createElement("section");
         mainSlider.className = "regular slider";
 
         // create the WebVTT file: first the mandatory header
-        var vtt_list = ["WEBVTT", ""]
+        var vtt_list = ["WEBVTT", ""];
+        var slide;
 
         try {
             extract_data[0][0]['content']['listslides'].forEach(function(elem, index){
                 // Add to our navigation
                 slide = document.createElement("div");
-                slide.setAttribute("onclick", "video_jump(" + elem[3] + ")");
+                slide.setAttribute("onclick", "$.video_jump(" + elem[3] + ")");
                 slide_image = document.createElement("IMG");
                 slide_image.setAttribute("src", jsRoutes.api.Previews.download(elem[2]).url);
                 slide.appendChild(slide_image);
