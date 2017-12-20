@@ -237,6 +237,7 @@ class VideoMetaData(Extractor):
         """Create mp4 and webm heavily compressed previews of the presentation to use in the previewer"""
 
         # Let's not be greedy, use half available cores since we are probably in a docker container
+        # This could be done less crudely, we could leave this control to the container
         encoding_threads = multiprocessing.cpu_count()
         if encoding_threads > 1:
             encoding_threads = int(np.ceil(encoding_threads/2))
@@ -310,7 +311,7 @@ class VideoMetaData(Extractor):
                 self.results.append((frame_idx, time_idx, None))
                 continue
 
-            # Create section for file
+            # Create section for file (currently not used)
             #sectionid = sections_upload(connector, host, secret_key, {'file_id': resource['id']})
             #slidemeta = {
             #    'section_id': sectionid,
