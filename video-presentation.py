@@ -280,7 +280,7 @@ class VideoMetaData(Extractor):
         # First let's set the encoders off in the background to create our previews (uses only half available
         # processors)
         encoder_job = multiprocessing.Process(target=create_video_previews,
-                                              args=(resource['local_paths'][0], self.tmpdir))
+                                              args=(resource['local_paths'][0], self.tempdir))
         encoder_job.start()
 
         if self.algorithmsettings.get('algorithm', '') == "basic":
