@@ -85,6 +85,47 @@ default_settings_basic = {
     'trigger' : 0.01,
 }
 
+# Add function to do compression that is pickle-able
+def create_video_previews(filename, output_dir):
+    """Create mp4 and webm heavily compressed previews of the presentation to use in the previewer"""
+
+    # Let's not be greedy, use half available cores since we are probably in a docker container
+    # This could be done less crudely, we could leave this control to the container
+    encoding_threads = multiprocessing.cpu_count()
+    if encoding_threads > 1:
+        encoding_threads = int(np.ceil(encoding_threads / 2))
+
+    ffmpeg_stub = "ffmpeg -loglevel error -y -i \"" + os.path.abspath(filename) + "\" -threads " + \
+                  str(encoding_threads)
+    # We use the same audio settings for both videos
+    no_audio = " -an "
+    mp4_audio = " -strict -2 -acodec aac -ac 1 -b:a 64k "
+    webm_audio = " -acodec libopus -ac 1 -b:a 64k "
+    # Use very heavy compression since most of what we deal with is 2d without shadows
+    mp4_settings = " -vcodec libx264 -preset medium -b:v 96k -qmax 42 -maxrate 250k "
+    webm_settings = " -vcodec libvpx -quality good -b:v 96k -crf 10 -qmin 0 -qmax 42 -maxrate 250k -bufsize 1000k "
+
+    # The 2 pass method requires some temporary files so let's (temporarily) change to the temp dir we have
+    currentdir = os.getcwd()
+    os.chdir(output_dir)
+
+    # First let's do mp4
+    ffmpeg_command = ffmpeg_stub + mp4_settings + no_audio + "-pass 1 -f mp4 /dev/null"
+    # using the shell is a potential security hazard but our filenames are sanitized by Clowder
+    subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
+    ffmpeg_command = ffmpeg_stub + mp4_settings + mp4_audio + "-pass 2 -f mp4 preview.mp4.preview"
+    subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
+    # Now do webm
+    ffmpeg_command = ffmpeg_stub + webm_settings + no_audio + "-pass 1 -f webm /dev/null"
+    subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
+    ffmpeg_command = ffmpeg_stub + webm_settings + webm_audio + "-pass 2 -f webm preview.webm.preview"
+    subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
+
+    # Change back to the original directory
+    os.chdir(currentdir)
+
+    return
+
 class VideoMetaData(Extractor):
     """Extract slide transitions in a video"""
     def __init__(self):
@@ -233,48 +274,14 @@ class VideoMetaData(Extractor):
         self.logger.debug("Masks after preparing: %s", parsed_masks)
         return parsed_masks
 
-    def create_video_previews(self, filename):
-        """Create mp4 and webm heavily compressed previews of the presentation to use in the previewer"""
-
-        # Let's not be greedy, use half available cores since we are probably in a docker container
-        # This could be done less crudely, we could leave this control to the container
-        encoding_threads = multiprocessing.cpu_count()
-        if encoding_threads > 1:
-            encoding_threads = int(np.ceil(encoding_threads/2))
-
-        ffmpeg_stub = "ffmpeg -loglevel error -y -i \"" + os.path.abspath(filename) + "\" -threads " + \
-                      str(encoding_threads)
-        # We use the same audio settings for both videos
-        no_audio = " -an "
-        mp4_audio = " -strict -2 -acodec aac -ac 1 -b:a 64k "
-        webm_audio = " -acodec libopus -ac 1 -b:a 64k "
-        # Use very heavy compression since most of what we deal with is 2d without shadows
-        mp4_settings = " -vcodec libx264 -preset medium -b:v 96k -qmax 42 -maxrate 250k "
-        webm_settings = " -vcodec libvpx -quality good -b:v 96k -crf 10 -qmin 0 -qmax 42 -maxrate 250k -bufsize 1000k "
-
-        # The 2 pass method requires some temporary files so let's (temporarily) change to the temp dir we have
-        currentdir = os.getcwd()
-        os.chdir(self.tempdir)
-
-        # First let's do mp4
-        ffmpeg_command = ffmpeg_stub + mp4_settings + no_audio + "-pass 1 -f mp4 /dev/null"
-        # using the shell is a potential security hazard but our filenames are sanitized by Clowder
-        subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
-        ffmpeg_command = ffmpeg_stub + mp4_settings + mp4_audio + "-pass 2 -f mp4 preview.mp4.preview"
-        subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
-        # Now do webm
-        ffmpeg_command = ffmpeg_stub + webm_settings + no_audio + "-pass 1 -f webm /dev/null"
-        subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
-        ffmpeg_command = ffmpeg_stub + webm_settings + webm_audio + "-pass 2 -f webm preview.webm.preview"
-        subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
-
-        # Change back to the original directory
-        os.chdir(currentdir)
-
-        return os.path.join(self.tempdir, "preview.mp4.preview"), os.path.join(self.tempdir, "preview.webm.preview")
-
     def find_slides_transitions(self, connector, host, secret_key, resource, masks=None):  # pylint: disable=unused-argument,too-many-arguments
         """find slides"""
+
+        # First let's set the encoders off in the background to create our previews (uses only half available
+        # processors)
+        encoder_job = multiprocessing.Process(target=create_video_previews,
+                                              args=(resource['local_paths'][0], self.tmpdir))
+        encoder_job.start()
 
         if self.algorithmsettings.get('algorithm', '') == "basic":
             settings = dict(default_settings_basic)  # make sure it's a copy
@@ -289,8 +296,10 @@ class VideoMetaData(Extractor):
             self.logger.debug("Using advanced algorithm for finding slides. settings: %s", settings)
             results = self.slide_find_advanced(resource['local_paths'][0], masks=masks, **settings)
 
-        # Create and upload the compressed previews
-        mp4_preview, webm_preview = self.create_video_previews(resource['local_paths'][0])
+        # Wait for encoder job to finish and upload the compressed previews
+        encoder_job.join()
+        mp4_preview = os.path.join(self.tempdir, "preview.mp4.preview")
+        webm_preview = os.path.join(self.tempdir, "preview.webm.preview")
         mp4_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], mp4_preview, {})
         webm_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], webm_preview, {})
 
