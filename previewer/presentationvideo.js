@@ -15,12 +15,12 @@
         dataType: "json"
     });
 
-    // Loading Video.js, the chapter plugin and our carousel for the slide
+    // Loading Video.js, the chapter plugin and our carousel for the slides
 
     // Let's start with the stylesheets needed
-    var i, len, myCssFiles = [ "/video-js.css", "/videojs-chapter-thumbnails/videojs.chapter-thumbnails.min.css", "/slick/slick.css", "/slick/slick-theme.css", "/slickconf.css" ];
+    var i, s, len, myCssFiles = [ "/video-js.css", "/videojs-chapter-thumbnails/videojs.chapter-thumbnails.min.css", "/slick/slick.css", "/slick/slick-theme.css", "/slickconf.css" ];
     for (len = myCssFiles.length, i=0; i<len; ++i) {
-        var s = document.createElement("link");
+        s = document.createElement("link");
         s.rel = "stylesheet";
         s.type = "text/css";
         s.href =  Configuration.previewer + myCssFiles[i];
@@ -81,7 +81,7 @@
 
         // create the WebVTT file: first the mandatory header
         var vtt_list = ["WEBVTT", ""];
-        var slide;
+        var slide, slide_image;
 
         try {
             extract_data[0][0]['content']['listslides'].forEach(function(elem, index){
