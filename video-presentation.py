@@ -3,6 +3,7 @@
 Slides extractor from a video
 
 Author Ward Poelmans <wpoely86@gmail.com>
+Author Alan O'Cais <a.ocais@fz-juelich.de>
 """
 
 import datetime
