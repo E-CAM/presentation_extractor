@@ -300,10 +300,17 @@ class VideoMetaData(Extractor):
 
         # Wait for encoder job to finish and upload the compressed previews
         encode_job.join()
-        mp4_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'],
-                                                        os.path.join(self.tempdir, mp4_preview), {})
-        webm_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'],
-                                                         os.path.join(self.tempdir, webm_preview), {})
+        # Check the output files exist, if so upload them
+        mp4_preview_file = os.path.join(self.tempdir, mp4_preview)
+        webm_preview_file = os.path.join(self.tempdir, webm_preview)
+        if os.path.exists(mp4_preview_file) and os.path.exists(webm_preview_file):
+            mp4_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'],
+                                                            mp4_preview_file, {})
+            webm_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'],
+                                                             webm_preview_file, {})
+        else:
+            self.logger.error("Video preview files were not created correctly!")
+            return []
 
         self.results = []
 
