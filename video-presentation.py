@@ -86,7 +86,7 @@ default_settings_basic = {
 }
 
 # Add function to do compression that is pickle-able
-def create_video_previews(filename, mp4_output_file, webm_output_file):
+def create_video_previews(filename, output_dir, mp4_filename, webm_filename):
     """Create mp4 and webm heavily compressed previews of the presentation to use in the previewer"""
 
     # Let's not be greedy, use half available cores since we are probably in a docker container
@@ -105,7 +105,7 @@ def create_video_previews(filename, mp4_output_file, webm_output_file):
     mp4_settings = " -vcodec libx264 -preset medium -b:v 96k -qmax 42 -maxrate 250k "
     webm_settings = " -vcodec libvpx -quality good -b:v 96k -crf 10 -qmin 0 -qmax 42 -maxrate 250k -bufsize 1000k "
 
-    # The 2 pass method requires some temporary files so let's (temporarily) change to the temp dir we have
+    # The 2 pass method requires some temporary files so let's (temporarily) change to the output dir we have
     currentdir = os.getcwd()
     os.chdir(output_dir)
 
@@ -113,12 +113,12 @@ def create_video_previews(filename, mp4_output_file, webm_output_file):
     ffmpeg_command = ffmpeg_stub + mp4_settings + no_audio + "-pass 1 -f mp4 /dev/null"
     # using the shell is a potential security hazard but our filenames are sanitized by Clowder
     subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
-    ffmpeg_command = ffmpeg_stub + mp4_settings + mp4_audio + "-pass 2 -f mp4 " + mp4_output_file
+    ffmpeg_command = ffmpeg_stub + mp4_settings + mp4_audio + "-pass 2 -f mp4 " + mp4_filename
     subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
     # Now do webm
     ffmpeg_command = ffmpeg_stub + webm_settings + no_audio + "-pass 1 -f webm /dev/null"
     subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
-    ffmpeg_command = ffmpeg_stub + webm_settings + webm_audio + "-pass 2 -f webm " + webm_output_file
+    ffmpeg_command = ffmpeg_stub + webm_settings + webm_audio + "-pass 2 -f webm " + webm_filename
     subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
 
     # Change back to the original directory
@@ -279,11 +279,11 @@ class VideoMetaData(Extractor):
 
         # First let's set the encoders off in the background to create our previews (uses only half available
         # processors so should be safe to leave in the background)
-        mp4_preview = os.path.join(self.tempdir, "preview.mp4.preview")
-        webm_preview = os.path.join(self.tempdir, "preview.webm.preview")
-        encoder_job = multiprocessing.Process(target=create_video_previews,
-                                              args=(resource['local_paths'][0], mp4_preview, webm_preview))
-        encoder_job.start()
+        mp4_preview = "preview.mp4.preview"
+        webm_preview = "preview.webm.preview"
+        encode_job = multiprocessing.Process(target=create_video_previews,
+                                             args=(resource['local_paths'][0], self.tempdir, mp4_preview, webm_preview))
+        encode_job.start()
 
         if self.algorithmsettings.get('algorithm', '') == "basic":
             settings = dict(default_settings_basic)  # make sure it's a copy
@@ -299,9 +299,11 @@ class VideoMetaData(Extractor):
             results = self.slide_find_advanced(resource['local_paths'][0], masks=masks, **settings)
 
         # Wait for encoder job to finish and upload the compressed previews
-        encoder_job.join()
-        mp4_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], mp4_preview, {})
-        webm_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], webm_preview, {})
+        encode_job.join()
+        mp4_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'],
+                                                        os.path.join(self.tempdir, mp4_preview), {})
+        webm_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'],
+                                                         os.path.join(self.tempdir, webm_preview), {})
 
         self.results = []
 
