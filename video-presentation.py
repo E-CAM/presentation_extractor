@@ -3,13 +3,16 @@
 Slides extractor from a video
 
 Author Ward Poelmans <wpoely86@gmail.com>
+Author Alan O'Cais <a.ocais@fz-juelich.de>
 """
 
 import datetime
 import json
 import logging
+import multiprocessing
 import os
 import shutil
+import subprocess
 import tempfile
 
 import cv2  # OpenCV
@@ -75,6 +78,7 @@ default_settings_advanced = {
     'minimum_total_change' : 0.06,
     'minimum_slide_length' : 20,
     'motion_capture_averaging_time' : 10,
+    'msec_to_delay_screenshot' : 1000,
 }
 
 default_settings_basic = {
@@ -126,12 +130,12 @@ class VideoMetaData(Extractor):
 
     def check_message(self, connector, host, secret_key, resource, parameters):  # pylint: disable=unused-argument,too-many-arguments
         """Check if the extractor should download the file or ignore it."""
-        if not resource['file_ext'] == '.slidespresentation':
+        if not resource['file_ext'] == '.mp4' and not resource['file_ext'] == '.webm':
             if parameters.get('action', '') != 'manual-submission':
-                self.logger.debug("Unknown filetype, skipping")
+                self.logger.debug("Unknown filetype %s (default support is for mp4/webm, other filestypes must be manually submitted), skipping", resource['file_ext'])
                 return pyclowder.utils.CheckMessage.ignore
             else:
-                self.logger.debug("Unknown filetype, but scanning by manuel request")
+                self.logger.debug("Unknown filetype, but scanning by manual request")
 
         return pyclowder.utils.CheckMessage.download  # or bypass
 
@@ -230,6 +234,46 @@ class VideoMetaData(Extractor):
         self.logger.debug("Masks after preparing: %s", parsed_masks)
         return parsed_masks
 
+    def create_video_previews(self, filename):
+        """Create mp4 and webm heavily compressed previews of the presentation to use in the previewer"""
+
+        # Let's not be greedy, use half available cores since we are probably in a docker container
+        # This could be done less crudely, we could leave this control to the container
+        encoding_threads = multiprocessing.cpu_count()
+        if encoding_threads > 1:
+            encoding_threads = int(np.ceil(encoding_threads/2))
+
+        ffmpeg_stub = "ffmpeg -loglevel error -y -i \"" + os.path.abspath(filename) + "\" -threads " + \
+                      str(encoding_threads)
+        # We use the same audio settings for both videos
+        no_audio = " -an "
+        mp4_audio = " -strict -2 -acodec aac -ac 1 -b:a 64k "
+        webm_audio = " -acodec libopus -ac 1 -b:a 64k "
+        # Use very heavy compression since most of what we deal with is 2d without shadows
+        mp4_settings = " -vcodec libx264 -preset medium -b:v 96k -qmax 42 -maxrate 250k "
+        webm_settings = " -vcodec libvpx -quality good -b:v 96k -crf 10 -qmin 0 -qmax 42 -maxrate 250k -bufsize 1000k "
+
+        # The 2 pass method requires some temporary files so let's (temporarily) change to the temp dir we have
+        currentdir = os.getcwd()
+        os.chdir(self.tempdir)
+
+        # First let's do mp4
+        ffmpeg_command = ffmpeg_stub + mp4_settings + no_audio + "-pass 1 -f mp4 /dev/null"
+        # using the shell is a potential security hazard but our filenames are sanitized by Clowder
+        subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
+        ffmpeg_command = ffmpeg_stub + mp4_settings + mp4_audio + "-pass 2 -f mp4 preview.mp4.preview"
+        subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
+        # Now do webm
+        ffmpeg_command = ffmpeg_stub + webm_settings + no_audio + "-pass 1 -f webm /dev/null"
+        subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
+        ffmpeg_command = ffmpeg_stub + webm_settings + webm_audio + "-pass 2 -f webm preview.webm.preview"
+        subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
+
+        # Change back to the original directory
+        os.chdir(currentdir)
+
+        return os.path.join(self.tempdir, "preview.mp4.preview"), os.path.join(self.tempdir, "preview.webm.preview")
+
     def find_slides_transitions(self, connector, host, secret_key, resource, masks=None):  # pylint: disable=unused-argument,too-many-arguments
         """find slides"""
 
@@ -246,6 +290,11 @@ class VideoMetaData(Extractor):
             self.logger.debug("Using advanced algorithm for finding slides. settings: %s", settings)
             results = self.slide_find_advanced(resource['local_paths'][0], masks=masks, **settings)
 
+        # Create and upload the compressed previews
+        mp4_preview, webm_preview = self.create_video_previews(resource['local_paths'][0])
+        mp4_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], mp4_preview, {})
+        webm_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], webm_preview, {})
+
         self.results = []
 
         slidesmeta = {
@@ -253,6 +302,7 @@ class VideoMetaData(Extractor):
             'listslides': [],
             'algorithm': self.algorithmsettings.get('algorithm', 'advanced'),
             'settings': settings,
+            'previews': {'mp4': mp4_preview_id, 'webm': webm_preview_id},
         }
         self.logger.debug("tmp results: %s", results)
 
@@ -262,16 +312,18 @@ class VideoMetaData(Extractor):
                 self.results.append((frame_idx, time_idx, None))
                 continue
 
-            # Create section for file
-            sectionid = sections_upload(connector, host, secret_key, {'file_id': resource['id']})
-            slidemeta = {
-                'section_id': sectionid,
-            }
-            description = "Slide %2d at %s" % (idx + 1, datetime.timedelta(milliseconds=time_idx))
+            # Create section for file (currently not used)
+            #sectionid = sections_upload(connector, host, secret_key, {'file_id': resource['id']})
+            #slidemeta = {
+            #    'section_id': sectionid,
+            #}
+            #description = "Slide %2d at %s" % (idx + 1, datetime.timedelta(milliseconds=time_idx))
             # upload preview & associated it with the section
-            previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], slidepath, slidemeta)
+            if idx == 0:
+                pyclowder.files.upload_thumbnail(connector, host, secret_key, resource['id'], slidepath)
+            previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], slidepath, {})
             # add a description to every preview
-            pyclowder.sections.upload_description(connector, host, secret_key, sectionid, {'description': description})
+            #pyclowder.sections.upload_description(connector, host, secret_key, sectionid, {'description': description})
 
             self.results.append((frame_idx, time_idx, previewid))
 
@@ -284,6 +336,7 @@ class VideoMetaData(Extractor):
             # first chapter starts at.
             # Big assumption: the length of the movie is less then 24 hours
             prev_time = datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(milliseconds=self.results[0][1])
+            prev_time_msec = self.results[0][1]
             previewid = self.results[0][2]
 
             # the WebVTT time format needs to be 00:00:00.000
@@ -292,9 +345,10 @@ class VideoMetaData(Extractor):
             for _, time_idx, new_previewid in self.results[1:]:
                 begin_delta = datetime.datetime.utcfromtimestamp(0) + datetime.timedelta(milliseconds=time_idx)
                 # microseconds always get printed as 6 digits passed with zeros, so we delete the last 3 digits
-                slidesmeta['listslides'].append((str(prev_time.strftime(format_str)[:-3]), str(begin_delta.strftime(format_str)[:-3]), str(previewid)))
+                slidesmeta['listslides'].append((str(prev_time.strftime(format_str)[:-3]), str(begin_delta.strftime(format_str)[:-3]), str(previewid), str(prev_time_msec / 1000)))
                 previewid = new_previewid
                 prev_time = begin_delta
+                prev_time_msec = time_idx
 
         metadata = self.get_metadata(slidesmeta, 'file', resource['id'], host)
         self.logger.debug("New metadata: %s", metadata)
@@ -316,6 +370,8 @@ class VideoMetaData(Extractor):
         to 1, with a default of 6%)
         :param minimum_slide_length: minimum length of a slide (in seconds)
         :param motion_capture_averaging_time: the time over which to build up our average of the background (in seconds)
+        :param msec_to_delay_screenshot: The amount of delay before taking a screenshot (good for animated slide
+        transitions) in milliseconds
         :return list with tuples of frame number, timestamp and path to screenshot of slide
         """
         options = dict(default_settings_advanced)
@@ -329,6 +385,7 @@ class VideoMetaData(Extractor):
         minimum_total_change = options.get('minimum_total_change')
         minimum_slide_length = options.get('minimum_slide_length')
         motion_capture_averaging_time = options.get('motion_capture_averaging_time')
+        msec_to_delay_screenshot = options.get('msec_to_delay_screenshot')
 
         cap = cv2.VideoCapture(filename)
         if not cap.isOpened():
@@ -439,8 +496,8 @@ class VideoMetaData(Extractor):
                         timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
                         self.logger.debug("Found slide transition at %s", timestamp)
 
+                        # Set the path now, but write the image later
                         slidepath = os.path.join(self.tempdir, 'slide%05d.png' % (len(slides)+1))
-                        cv2.imwrite(slidepath, orig_frame)
 
                         slides.append((frame_index, timestamp, slidepath))
 
@@ -465,7 +522,17 @@ class VideoMetaData(Extractor):
                 percent_processed += 1
                 self.logger.debug("Processed at %3d %%", percent_processed)
 
-        slides.append((frame_index, cap.get(cv2.CAP_PROP_POS_MSEC), None))
+        # Now that we know all the transitions, grab the slide image with a configurable offset
+        final_timestamp = cap.get(cv2.CAP_PROP_POS_MSEC)
+        for slide in slides:
+            # Set the time position of the slide for the grab
+            cap.set(cv2.CAP_PROP_POS_MSEC, slide[1] + msec_to_delay_screenshot)
+            # Grab the image
+            _, frame = cap.read()
+            # Save the image
+            cv2.imwrite(slide[2], frame, [cv2.IMWRITE_PNG_COMPRESSION, 9])
+        # Add am empty slide to hold the terminating timestamp
+        slides.append((frame_index, final_timestamp, None))
         cap.release()
 
         return slides

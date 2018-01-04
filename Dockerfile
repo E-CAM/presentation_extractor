@@ -36,9 +36,9 @@ RUN wget -O opencv.tar.gz https://github.com/opencv/opencv/archive/3.3.1.tar.gz 
 # This provides a recent version of OpenCV
 #RUN pip install -U opencv-contrib-python
 
-# Until our PR is merged in master, install manually
+# Until our PR is merged in master, install manually (not required if not using sections)
 # https://opensource.ncsa.illinois.edu/bitbucket/projects/CATS/repos/pyclowder2/pull-requests/55/overview
-RUN pip install -U git+https://github.com/wpoely86/pyclowder2.git@feature/upload_section_description
+#RUN pip install -U git+https://github.com/wpoely86/pyclowder2.git@feature/upload_section_description
 
 # Switch to clowder, copy files and be ready to run
 USER clowder
