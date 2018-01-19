@@ -90,6 +90,7 @@
                 slide.setAttribute("onclick", "$.video_jump(" + elem[3] + ")");
                 slide_image = document.createElement("IMG");
                 slide_image.setAttribute("src", jsRoutes.api.Previews.download(elem[2]).url);
+                slide_image.setAttribute("title", "Click/tap on this slide to navigate to it in the video");
                 slide.appendChild(slide_image);
                 mainSlider.appendChild(slide);
                 slide = document.createElement("div");
