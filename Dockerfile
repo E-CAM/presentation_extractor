@@ -22,7 +22,8 @@ RUN apt-get update && apt-get install -y \
      apt-get -y build-dep python-opencv && \
      rm -rf /var/lib/apt/lists/*
 
-RUN wget -O opencv.tar.gz https://github.com/opencv/opencv/archive/3.3.1.tar.gz && \
+# The packaged version of OpenCV doesn't build with ffmpeg support, so we build it ourself.
+RUN wget -O opencv.tar.gz https://github.com/opencv/opencv/archive/3.4.0.tar.gz && \
     tar -xvzf opencv.tar.gz && \
     cd opencv-* && \
     mkdir build && \
@@ -35,10 +36,6 @@ RUN wget -O opencv.tar.gz https://github.com/opencv/opencv/archive/3.3.1.tar.gz 
 
 # This provides a recent version of OpenCV
 #RUN pip install -U opencv-contrib-python
-
-# Until our PR is merged in master, install manually (not required if not using sections)
-# https://opensource.ncsa.illinois.edu/bitbucket/projects/CATS/repos/pyclowder2/pull-requests/55/overview
-#RUN pip install -U git+https://github.com/wpoely86/pyclowder2.git@feature/upload_section_description
 
 # Switch to clowder, copy files and be ready to run
 USER clowder
