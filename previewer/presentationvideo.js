@@ -91,13 +91,13 @@
                 slide_image = document.createElement("IMG");
                 slide_image.setAttribute("src", jsRoutes.api.Previews.download(elem[2]).url);
                 slide_image.setAttribute("title", "Click/tap on this slide to navigate to it in the video");
-                slide_image.setAttribute("alt", "Slide " + (index+1));
+                slide_image.setAttribute("alt", "Slide " + (index+1) + "/" + extract_data[0][0]['content']['nrslides']);
                 slide.appendChild(slide_image);
                 mainSlider.appendChild(slide);
                 slide = document.createElement("div");
                 slide_image = document.createElement("IMG");
                 slide_image.setAttribute("src", jsRoutes.api.Previews.download(elem[2]).url);
-                slide_image.setAttribute("title", "Slide " + (index+1));
+                slide_image.setAttribute("title", "Slide " + (index+1) + "/" + extract_data[0][0]['content']['nrslides']);
                 slide.appendChild(slide_image);
                 navSlider.appendChild(slide);
                 // Add to VTT
