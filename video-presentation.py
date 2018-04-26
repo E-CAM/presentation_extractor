@@ -515,7 +515,7 @@ class VideoMetaData(Extractor):
                         self.logger.debug("Found slide transition at %s", timestamp)
 
                         # Set the path now, but write the image later
-                        slidepath = os.path.join(self.tempdir, 'slide%05d.png' % (len(slides)+1))
+                        slidepath = os.path.join(self.tempdir, 'slide%05d.jpg' % (len(slides)+1))
 
                         slides.append((frame_index, timestamp, slidepath))
 
@@ -548,7 +548,7 @@ class VideoMetaData(Extractor):
             # Grab the image
             _, frame = cap.read()
             # Save the image
-            cv2.imwrite(slide[2], frame, [cv2.IMWRITE_PNG_COMPRESSION, 9])
+            cv2.imwrite(slide[2], frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
         # Add am empty slide to hold the terminating timestamp
         slides.append((frame_index, final_timestamp, None))
         cap.release()
