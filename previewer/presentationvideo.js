@@ -65,9 +65,6 @@
         console.log("Creating the video presentation previewer");
         console.log(extract_data);
 
-        // Collapse the extractor info
-        $('.collapse').collapse("hide");
-
         // inject our function to navigate through the video
         jQuery.video_jump = function video_jump(seconds) {
             videojs('mypresentationvideo').play();
@@ -155,6 +152,10 @@
             $(useTab).append(navSlider);
             initialise_slick();
         }
+        
+        // Collapse the extractor accordian info
+        $('.collapse').collapse("hide");
+
 
     }).fail(function(err){
         console.log("Failed to load all scripts for video presentation previewer: " + err['status'] + " - " + err['statusText']);
