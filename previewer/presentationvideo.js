@@ -117,7 +117,6 @@
         var webvtt = vtt_list.join('\n');
         console.log(webvtt);
 
-
         // Showing the original file. 
         // This also means the "preview" is a single video and not a multi-option cross-browser compatibility combination,
         // as those can only be generated as previews by the system. 
@@ -144,7 +143,6 @@
               this.chapterNav();
             }); 
             
-
             // Add our slider
             $(useTab).append("<br/>");
             $(useTab).append(mainSlider);
@@ -155,7 +153,6 @@
         
         // Collapse the extractor accordian info
         $('.collapse').collapse("hide");
-
 
     }).fail(function(err){
         console.log("Failed to load all scripts for video presentation previewer: " + err['status'] + " - " + err['statusText']);
