@@ -1,6 +1,7 @@
 //configure the slider
 function initialise_slick() {
   $(".regular").slick({
+    lazyLoad: 'ondemand',
     infinite: false,
     slidesToShow: 1,
     slidesToScroll: 1,
@@ -11,6 +12,7 @@ function initialise_slick() {
     asNavFor: '.center'
   });
   $(".center").slick({
+    lazyLoad: 'ondemand',
     infinite: false,
     slidesToShow: 3,
     slidesToScroll: 1,

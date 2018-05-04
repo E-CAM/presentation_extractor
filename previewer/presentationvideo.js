@@ -15,12 +15,12 @@
         dataType: "json"
     });
 
-    // Loading Video.js, the chapter plugin and our carousel for the slides
+    // Loading Video.js, the chapter plugin and our carousel for the slide
 
     // Let's start with the stylesheets needed
-    var i, s, len, myCssFiles = [ "/video-js.css", "/videojs-chapter-thumbnails/videojs.chapter-thumbnails.min.css", "/slick/slick.css", "/slick/slick-theme.css", "/slickconf.css" ];
+    var i, len, myCssFiles = [ "/video-js.min.css", "/presentationvideo.css", "/slick/slick.css", "/slick/slick-theme.css", "/slickconf.css" ];
     for (len = myCssFiles.length, i=0; i<len; ++i) {
-        s = document.createElement("link");
+        var s = document.createElement("link");
         s.rel = "stylesheet";
         s.type = "text/css";
         s.href =  Configuration.previewer + myCssFiles[i];
@@ -30,15 +30,15 @@
 
     // load Video.js
     var videojs_req = $.ajax({
-        url: Configuration.previewer + "/video.js",
+        url: Configuration.previewer + "/video.min.js",
         dataType: "script",
         context: this,
     });
 
     // only load the plugin after Video.js itself has been loaded.
-    var videojs_thumb_plugin = $.when(videojs_req).then(function() {
+    var videojs_chapter_plugin = $.when(videojs_req).then(function() {
         return $.ajax({
-            url: Configuration.previewer + "/videojs-chapter-thumbnails/videojs.chapter-thumbnails.min.js",
+            url: Configuration.previewer + "/videojs-chapter-nav/videojs.chapter-nav.min.js",
             dataType: "script",
             context: this,
         });
@@ -61,9 +61,12 @@
     });
 
     // when all the plugins and the JSON-LD are loaded, we can show the previewer
-    $.when(extractor_req, videojs_thumb_plugin, slickconf_req).done(function(extract_data, videojs_plugin, slider_plugin){
+    $.when(extractor_req, videojs_chapter_plugin, slickconf_req).done(function(extract_data, videojs_plugin, slider_plugin){
         console.log("Creating the video presentation previewer");
         console.log(extract_data);
+
+        // Collapse the extractor info
+        $('.collapse').collapse("hide");
 
         // inject our function to navigate through the video
         jQuery.video_jump = function video_jump(seconds) {
@@ -81,7 +84,7 @@
 
         // create the WebVTT file: first the mandatory header
         var vtt_list = ["WEBVTT", ""];
-        var slide, slide_image;
+        var slide;
 
         try {
             extract_data[0][0]['content']['listslides'].forEach(function(elem, index){
@@ -89,19 +92,22 @@
                 slide = document.createElement("div");
                 slide.setAttribute("onclick", "$.video_jump(" + elem[3] + ")");
                 slide_image = document.createElement("IMG");
-                slide_image.setAttribute("src", jsRoutes.api.Previews.download(elem[2]).url);
-                slide_image.setAttribute("title", "Click/tap on this slide to navigate to it in the video");
+                slide_image.setAttribute("data-lazy", jsRoutes.api.Previews.download(elem[2]).url);
+                slide_image.setAttribute("title", "Slide " + (index+1) +": Click/tap on this slide to navigate to it in the video");
                 slide.appendChild(slide_image);
                 mainSlider.appendChild(slide);
                 slide = document.createElement("div");
                 slide_image = document.createElement("IMG");
-                slide_image.setAttribute("src", jsRoutes.api.Previews.download(elem[2]).url);
+                slide_image.setAttribute("data-lazy", jsRoutes.api.Previews.download(elem[2]).url);
                 slide.appendChild(slide_image);
                 navSlider.appendChild(slide);
                 // Add to VTT
-                vtt_list.push("Slide " + (index+1));
+                vtt_list.push((index+1));
                 vtt_list.push(elem[0] + " --> " + elem[1]);
-                vtt_list.push('{"title":"Slide ' + (index+1) + '", "image": "'+ jsRoutes.api.Previews.download(elem[2]).url +'"}');
+                // Adding thumbnail images for chapters is possible via https://github.com/chemoish/videojs-chapter-thumbnails (videojs v5)
+                // Adding images to the chapters has high overhead, they are not cached and are loaded before the video begins to play
+                //vtt_list.push('{"title":"Slide ' + (index+1) + '", "image": "'+ jsRoutes.api.Previews.download(elem[2]).url +'"}');
+                vtt_list.push('Slide ' + (index+1));
                 vtt_list.push("");
             });
         } catch(err) {
@@ -125,18 +131,19 @@
                 sources = "<source src='" + referenceUrl + "' type='video/mp4'>";
             };
             $(useTab).append(
-                "<video  crossorigin='anonymous' id='mypresentationvideo' class='video-js vjs-fluid vjs-default-skin' controls preload='auto' data-setup='{}'>" +
+                "<video  crossorigin='anonymous' id='mypresentationvideo' class='video-js vjs-fluid vjs-default-skin' controls preload='auto' data-setup='{ \"playbackRates\": [0.75, 1, 1.25, 1.5, 1.75] }'>" +
                 sources +
-//                "<track kind='chapters' src='data:text/plain;base64,"+ window.btoa(webvtt) +"' default>" +
+                "<track kind='chapters' src='data:text/plain;base64,"+ window.btoa(webvtt) +"' label=\"Slides\" default>" +
                 "<p class='vjs-no-js'>" +
                 "To view this video consider upgrading to a web browser that " +
                 "<a href='http://videojs.com/html5-video-support/' target='_blank'>supports HTML5 video.</a></p>" +
                 "</video>"
             );
             // initialize the video element just added + plugin
-            videojs('mypresentationvideo').chapter_thumbnails({
-                src: 'data:text/plain;base64,' + window.btoa(webvtt),
-            });
+            videojs('mypresentationvideo').ready(function(){
+              this.chapterNav();
+            }); 
+            
 
             // Add our slider
             $(useTab).append("<br/>");
@@ -144,9 +151,6 @@
             $(useTab).append("<br/>");
             $(useTab).append(navSlider);
             initialise_slick();
-
-            // Collapse the extractor info
-            $('.collapse').collapse("hide");
         }
 
     }).fail(function(err){
