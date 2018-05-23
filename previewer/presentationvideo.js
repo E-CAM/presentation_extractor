@@ -83,10 +83,15 @@
         var vtt_list = ["WEBVTT", ""];
         var slide, slide_image;
 
+        // create an array of slide times so that we can implement jumping to slide based on time in video
+        var slide_times=[];
+
         try {
             extract_data[0][0]['content']['listslides'].forEach(function(elem, index){
                 // Add to our navigation
                 slide = document.createElement("div");
+                // Add to the array of slide times
+                slide_times.push(elem[3]);
                 slide.setAttribute("onclick", "$.video_jump(" + elem[3] + ")");
                 slide_image = document.createElement("IMG");
                 slide_image.setAttribute("data-lazy", jsRoutes.api.Previews.download(elem[2]).url);
@@ -142,20 +147,45 @@
             videojs('mypresentationvideo').ready(function(){
               this.chapterNav();
             }); 
-            
+
             // Add our slider
+            $(useTab).append("<br/>");
+            $(useTab).append("<div><h3 class=\"align-middle\"><label class=\"switch\">\
+              <input type=\"checkbox\" checked id=\"switchsync\">\
+              <span  title=\"Turn off to use slides for navigation\" class=\"mytoggle round\"></label>\
+              <em>Video sync to slides</em></h4><div>");
             $(useTab).append("<br/>");
             $(useTab).append(mainSlider);
             $(useTab).append("<br/>");
             $(useTab).append(navSlider);
             initialise_slick();
+
+            // Jump to slide in slick based on what the current time in the video is. Since  the slide time array is an
+            // ordered list, we just need to find the index of the element that matches.
+            function findSlide(element){
+              return  this < element;
+            }
+
+            videojs('mypresentationvideo').on('timeupdate', function(e) {
+              // Check if we sync or not
+              if (document.getElementById("switchsync").checked) {
+                var next_slide = slide_times.findIndex(findSlide, videojs('mypresentationvideo').currentTime());
+                // Set current slide (with exception of last slide where findIndex returns -1)
+                if (next_slide >= 0) {
+                  $('.regular').slick('slickGoTo', next_slide - 1);
+                } else {
+                  // Explicitly set to last slide
+                  $('.regular').slick('slickGoTo', slide_times.length - 1);
+                }
+              }
+            });
         }
-        
+
         // Collapse the extractor accordian info
         $('.collapse').collapse("hide");
 
     }).fail(function(err){
         console.log("Failed to load all scripts for video presentation previewer: " + err['status'] + " - " + err['statusText']);
     });
-    
+
 }(jQuery, Configuration));
