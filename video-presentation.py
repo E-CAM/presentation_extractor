@@ -341,7 +341,17 @@ class VideoMetaData(Extractor):
             # upload preview & associated it with the section
             if idx == 0:
                 pyclowder.files.upload_thumbnail(connector, host, secret_key, resource['id'], slidepath)
-            previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], slidepath, {})
+            
+            failures = 0
+            success = False
+            while not success:
+                try:
+                    previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], slidepath, {})
+                    success = True
+                except HTTPError as err:
+                    failures += 1
+                    if failures > 5:
+                        raise err
             # add a description to every preview
             #pyclowder.sections.upload_description(connector, host, secret_key, sectionid, {'description': description})
 
