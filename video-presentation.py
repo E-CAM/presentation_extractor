@@ -189,7 +189,9 @@ class VideoMetaData(Extractor):
         # we reread the settings on every file we process
         self.read_settings()
 
-        usersettings = json.loads(parameters.get('parameters', '{}'))
+        # Used to return a json string but now directly returns a dict
+        # usersettings = json.loads(parameters.get('parameters', '{}'))
+        usersettings = parameters.get('parameters', {})
         usermask = usersettings.get('masks')
         if isinstance(usermask, (dict, list)):
             self.masksettings = usermask
