@@ -19,6 +19,8 @@ import cv2  # OpenCV
 import numpy as np
 import yaml
 
+from urllib2 import HTTPError
+
 import pyclowder
 from pyclowder.extractors import Extractor
 from pyclowder.sections import upload as sections_upload
