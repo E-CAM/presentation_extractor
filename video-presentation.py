@@ -279,6 +279,20 @@ class VideoMetaData(Extractor):
         self.logger.debug("Masks after preparing: %s", parsed_masks)
         return parsed_masks
 
+    def try_upload_preview_file(self, connector, host, secret_key, resource_id, preview_file, parameters):
+        failures = 0
+        success = False
+        while not success:
+            try:
+                previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource_id, preview_file,
+                                                           parameters)
+                success = True
+            except HTTPError as err:
+                failures += 1
+                if failures > 5:
+                    raise err
+        return previewid
+
     def find_slides_transitions(self, connector, host, secret_key, resource, masks=None):  # pylint: disable=unused-argument,too-many-arguments
         """find slides"""
 
@@ -309,10 +323,10 @@ class VideoMetaData(Extractor):
         mp4_preview_file = os.path.join(self.tempdir, mp4_preview)
         webm_preview_file = os.path.join(self.tempdir, webm_preview)
         if os.path.exists(mp4_preview_file) and os.path.exists(webm_preview_file):
-            mp4_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'],
-                                                            mp4_preview_file, {})
-            webm_preview_id = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'],
-                                                             webm_preview_file, {})
+            mp4_preview_id = self.try_upload_preview_file(connector, host, secret_key, resource['id'],
+                                                          mp4_preview_file, {})
+            webm_preview_id = self.try_upload_preview_file(connector, host, secret_key, resource['id'],
+                                                           webm_preview_file, {})
         else:
             self.logger.error("Video preview files were not created correctly!")
             return []
@@ -344,16 +358,8 @@ class VideoMetaData(Extractor):
             if idx == 0:
                 pyclowder.files.upload_thumbnail(connector, host, secret_key, resource['id'], slidepath)
             
-            failures = 0
-            success = False
-            while not success:
-                try:
-                    previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource['id'], slidepath, {})
-                    success = True
-                except HTTPError as err:
-                    failures += 1
-                    if failures > 5:
-                        raise err
+            previewid = self.try_upload_preview_file(connector, host, secret_key, resource['id'], slidepath, {})
+
             # add a description to every preview
             #pyclowder.sections.upload_description(connector, host, secret_key, sectionid, {'description': description})
 
