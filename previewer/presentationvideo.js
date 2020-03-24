@@ -152,10 +152,10 @@
 
             // Add our slider
             $(useTab).append("<br/>");
-            $(useTab).append("<div><h3><label class=\"switch\">\
+            $(useTab).append("<div><h3 style=\"text-align:center;\"><label class=\"switch\">\
               <input type=\"checkbox\" checked id=\"switchsync\">\
               <span  title=\"Turn off to use slides for navigation\" class=\"mytoggle round\"></label>\
-              <em>Video sync to slides</em></h3><div>");
+              <em>Sync video to slides</em></h3><div>");
             $(useTab).append("<br/>");
             $(useTab).append(mainSlider);
             $(useTab).append("<br/>");
