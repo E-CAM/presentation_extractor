@@ -282,16 +282,18 @@ class VideoMetaData(Extractor):
         self.logger.debug("Masks after preparing: %s", parsed_masks)
         return parsed_masks
 
-    def try_upload_preview_file(self, connector, host, secret_key, resource_id, preview_file, parameters,
-                                allowed_failures=20, wait_between_failures=15):
+    def try_upload_preview_file(self, upload_func, connector, host, secret_key, resource_id, preview_file,
+                                parameters=None, allowed_failures=20, wait_between_failures=15):
         # Compressing is very expensive, let's try to upload repeatedly for 5 minutes before failing
         for attempt in range(allowed_failures):
             try:
                 if attempt != 0:
                     time.sleep(wait_between_failures)
                 self.logger.info("Trying to upload preview file %s (Attempt %s)", preview_file, attempt)
-                previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource_id, preview_file,
-                                                           parameters)
+                if parameters is None:
+                    previewid = upload_func(connector, host, secret_key, resource_id, preview_file)
+                else:
+                    previewid = upload_func(connector, host, secret_key, resource_id, preview_file, parameters)
             except HTTPError as err:
                 self.logger.warning("Caught HTTPError %s for %s, trying up to %s times!", attempt, preview_file,
                                     allowed_failures)
@@ -340,11 +342,12 @@ class VideoMetaData(Extractor):
         mp4_preview_file = os.path.join(self.tempdir, mp4_preview)
         webm_preview_file = os.path.join(self.tempdir, webm_preview)
         if os.path.exists(mp4_preview_file):
-            mp4_preview_id = self.try_upload_preview_file(connector, host, secret_key, resource['id'],
-                                                          mp4_preview_file, {})
+            mp4_preview_id = self.try_upload_preview_file(pyclowder.files.upload_preview, connector, host, secret_key,
+                                                          resource['id'], mp4_preview_file, parameters={})
             if webm and os.path.exists(webm_preview_file):
-                webm_preview_id = self.try_upload_preview_file(connector, host, secret_key, resource['id'],
-                                                               webm_preview_file, {})
+                webm_preview_id = self.try_upload_preview_file(pyclowder.files.upload_preview, connector, host,
+                                                               secret_key, resource['id'], webm_preview_file,
+                                                               parameters={})
         else:
             self.logger.error("Video preview files were not created correctly!")
             return []
@@ -379,9 +382,11 @@ class VideoMetaData(Extractor):
             #description = "Slide %2d at %s" % (idx + 1, datetime.timedelta(milliseconds=time_idx))
             # upload preview & associated it with the section
             if idx == 0:
-                pyclowder.files.upload_thumbnail(connector, host, secret_key, resource['id'], slidepath)
+                self.try_upload_preview_file(pyclowder.files.upload_thumbnail, connector, host, secret_key,
+                                             resource['id'], slidepath)
             
-            previewid = self.try_upload_preview_file(connector, host, secret_key, resource['id'], slidepath, {})
+            previewid = self.try_upload_preview_file(pyclowder.files.upload_preview, connector, host, secret_key,
+                                                     resource['id'], slidepath, parameters={})
 
             # add a description to every preview
             #pyclowder.sections.upload_description(connector, host, secret_key, sectionid, {'description': description})
@@ -415,7 +420,8 @@ class VideoMetaData(Extractor):
         self.logger.debug("New metadata: %s", metadata)
 
         # upload metadata
-        pyclowder.files.upload_metadata(connector, host, secret_key, resource['id'], metadata)
+        self.try_upload_preview_file(pyclowder.files.upload_metadata, connector, host, secret_key, resource['id'],
+                                     metadata)
 
     def slide_find_advanced(self, filename, **kwargs):
         """
