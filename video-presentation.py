@@ -299,8 +299,6 @@ class VideoMetaData(Extractor):
                 message = template.format(type(ex).__name__, ex.args)
                 self.logger.warning("Caught exception (attempt %s) for %s, trying up to %s times: %s", attempt,
                                     preview_file, allowed_failures, message)
-                self.logger.error(message)
-                raise ex
             else:
                 break
         else:
