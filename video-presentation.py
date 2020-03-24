@@ -285,21 +285,27 @@ class VideoMetaData(Extractor):
     def try_upload_preview_file(self, connector, host, secret_key, resource_id, preview_file, parameters,
                                 allowed_failures=20, wait_between_failures=15):
         # Compressing is very expensive, let's try to upload repeatedly for 5 minutes before failing
-        failures = 0
-        success = False
-        while not success:
+        for attempt in range(allowed_failures):
             try:
-                if failures != 0:
+                if attempt != 0:
                     time.sleep(wait_between_failures)
+                self.logger.info("Trying to upload preview file {} (Attempt {})").format(preview_file, attempt)
                 previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource_id, preview_file,
                                                            parameters)
-                success = True
             except HTTPError as err:
-                failures += 1
-                self.logger.warning("Caught HTTPError {} for {}, trying up to {} times!".format(failures, preview_file,
+                self.logger.warning("Caught HTTPError {} for {}, trying up to {} times!".format(attempt, preview_file,
                                                                                                 allowed_failures))
-                if failures > allowed_failures:
-                    raise err
+            except Exception as ex:
+                template = "An exception of type {0} occurred. Arguments:\n{1!r}"
+                message = template.format(type(ex).__name__, ex.args)
+                self.logger.error(message)
+                raise ex
+            else:
+                break
+        else:
+            # Raise the last HTTPError
+            raise err
+
         return previewid
 
     def find_slides_transitions(self, connector, host, secret_key, resource, masks=None, webm=True):  # pylint: disable=unused-argument,too-many-arguments
