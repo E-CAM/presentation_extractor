@@ -130,7 +130,9 @@
         if(confId == fileId){
             try {
                 sources = "<source src='" + jsRoutes.api.Previews.download(extract_data[0][0]['content']['previews']['mp4']).url + "' type='video/mp4'>";
-                sources += "<source src='" + jsRoutes.api.Previews.download(extract_data[0][0]['content']['previews']['webm']).url + "' type='video/webm'>";
+                if( 'webm' in extract_data[0][0]['content']['previews'] ){
+                    sources += "<source src='" + jsRoutes.api.Previews.download(extract_data[0][0]['content']['previews']['webm']).url + "' type='video/webm'>";
+                }
             } catch(err) {
                 sources = "<source src='" + referenceUrl + "' type='video/mp4'>";
             };
