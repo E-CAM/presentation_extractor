@@ -385,8 +385,8 @@ class VideoMetaData(Extractor):
                 self.try_upload_preview_file(pyclowder.files.upload_thumbnail, connector, host, secret_key,
                                              resource['id'], slidepath)
             
-            previewid = self.try_upload_preview_file(connector, host, secret_key, resource['id'], slidepath,
-                                                     parameters={})
+            previewid = self.try_upload_preview_file(pyclowder.files.upload_preview, connector, host, secret_key,
+                                                     resource['id'], slidepath, parameters={})
 
             # add a description to every preview
             #pyclowder.sections.upload_description(connector, host, secret_key, sectionid, {'description': description})
