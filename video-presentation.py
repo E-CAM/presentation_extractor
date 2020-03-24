@@ -294,19 +294,18 @@ class VideoMetaData(Extractor):
                     previewid = upload_func(connector, host, secret_key, resource_id, preview_file)
                 else:
                     previewid = upload_func(connector, host, secret_key, resource_id, preview_file, parameters)
-            except HTTPError as err:
-                self.logger.warning("Caught HTTPError %s for %s, trying up to %s times!", attempt, preview_file,
-                                    allowed_failures)
             except Exception as ex:
                 template = "An exception of type {0} occurred. Arguments:\n{1!r}"
                 message = template.format(type(ex).__name__, ex.args)
+                self.logger.warning("Caught exception (attempt %s) for %s, trying up to %s times: %s", attempt,
+                                    preview_file, allowed_failures, message)
                 self.logger.error(message)
                 raise ex
             else:
                 break
         else:
             # Raise the last HTTPError
-            raise err
+            raise ex
 
         return previewid
 
