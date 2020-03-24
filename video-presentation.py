@@ -14,6 +14,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 
 import cv2  # OpenCV
 import numpy as np
@@ -88,8 +89,9 @@ default_settings_basic = {
     'trigger' : 0.01,
 }
 
+
 # Add function to do compression that is pickle-able
-def create_video_previews(filename, output_dir, mp4_filename, webm_filename):
+def create_video_previews(filename, output_dir, mp4_filename, webm_filename, webm):
     """Create mp4 and webm heavily compressed previews of the presentation to use in the previewer"""
 
     # Let's not be greedy, use half available cores since we are probably in a docker container
@@ -119,10 +121,11 @@ def create_video_previews(filename, output_dir, mp4_filename, webm_filename):
     ffmpeg_command = ffmpeg_stub + mp4_settings + mp4_audio + "-pass 2 -f mp4 " + mp4_filename
     subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
     # Now do webm
-    ffmpeg_command = ffmpeg_stub + webm_settings + no_audio + "-pass 1 -f webm /dev/null"
-    subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
-    ffmpeg_command = ffmpeg_stub + webm_settings + webm_audio + "-pass 2 -f webm " + webm_filename
-    subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
+    if webm:
+        ffmpeg_command = ffmpeg_stub + webm_settings + no_audio + "-pass 1 -f webm /dev/null"
+        subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
+        ffmpeg_command = ffmpeg_stub + webm_settings + webm_audio + "-pass 2 -f webm " + webm_filename
+        subprocess.check_output(ffmpeg_command, stderr=subprocess.STDOUT, shell=True)
 
     # Change back to the original directory
     os.chdir(currentdir)
@@ -204,7 +207,7 @@ class VideoMetaData(Extractor):
 
         self.tempdir = tempfile.mkdtemp(prefix='clowder-video-presentation')
 
-        self.find_slides_transitions(connector, host, secret_key, resource, masks=self.masksettings)
+        self.find_slides_transitions(connector, host, secret_key, resource, masks=self.masksettings, webm=False)
 
         shutil.rmtree(self.tempdir, ignore_errors=True)
 
@@ -279,29 +282,35 @@ class VideoMetaData(Extractor):
         self.logger.debug("Masks after preparing: %s", parsed_masks)
         return parsed_masks
 
-    def try_upload_preview_file(self, connector, host, secret_key, resource_id, preview_file, parameters):
+    def try_upload_preview_file(self, connector, host, secret_key, resource_id, preview_file, parameters,
+                                allowed_failures=20, wait_between_failures=15):
+        # Compressing is very expensive, let's try to upload repeatedly for 5 minutes before failing
         failures = 0
         success = False
         while not success:
             try:
+                if failures != 0:
+                    time.sleep(wait_between_failures)
                 previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource_id, preview_file,
                                                            parameters)
                 success = True
             except HTTPError as err:
                 failures += 1
-                if failures > 5:
+                if failures > allowed_failures:
                     raise err
         return previewid
 
-    def find_slides_transitions(self, connector, host, secret_key, resource, masks=None):  # pylint: disable=unused-argument,too-many-arguments
+    def find_slides_transitions(self, connector, host, secret_key, resource, masks=None, webm=True):  # pylint: disable=unused-argument,too-many-arguments
         """find slides"""
 
         # First let's set the encoders off in the background to create our previews (uses only half available
         # processors so should be safe to leave in the background)
         mp4_preview = "preview.mp4.preview"
         webm_preview = "preview.webm.preview"
-        encode_job = multiprocessing.Process(target=create_video_previews,
-                                             args=(resource['local_paths'][0], self.tempdir, mp4_preview, webm_preview))
+        encode_job = multiprocessing.Process(
+            target=create_video_previews,
+            args=(resource['local_paths'][0], self.tempdir, mp4_preview, webm_preview, webm)
+        )
         encode_job.start()
 
         if self.algorithmsettings.get('algorithm', '') == "basic":
@@ -322,14 +331,20 @@ class VideoMetaData(Extractor):
         # Check the output files exist, if so upload them
         mp4_preview_file = os.path.join(self.tempdir, mp4_preview)
         webm_preview_file = os.path.join(self.tempdir, webm_preview)
-        if os.path.exists(mp4_preview_file) and os.path.exists(webm_preview_file):
+        if os.path.exists(mp4_preview_file):
             mp4_preview_id = self.try_upload_preview_file(connector, host, secret_key, resource['id'],
                                                           mp4_preview_file, {})
-            webm_preview_id = self.try_upload_preview_file(connector, host, secret_key, resource['id'],
-                                                           webm_preview_file, {})
+            if webm and os.path.exists(webm_preview_file):
+                webm_preview_id = self.try_upload_preview_file(connector, host, secret_key, resource['id'],
+                                                               webm_preview_file, {})
         else:
             self.logger.error("Video preview files were not created correctly!")
             return []
+
+        if webm:
+            previews = {'mp4': mp4_preview_id, 'webm': webm_preview_id}
+        else:
+            previews = {'mp4': mp4_preview_id}
 
         self.results = []
 
@@ -338,7 +353,7 @@ class VideoMetaData(Extractor):
             'listslides': [],
             'algorithm': self.algorithmsettings.get('algorithm', 'advanced'),
             'settings': settings,
-            'previews': {'mp4': mp4_preview_id, 'webm': webm_preview_id},
+            'previews': previews,
         }
         self.logger.debug("tmp results: %s", results)
 
