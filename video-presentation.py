@@ -289,12 +289,12 @@ class VideoMetaData(Extractor):
             try:
                 if attempt != 0:
                     time.sleep(wait_between_failures)
-                self.logger.info("Trying to upload preview file {} (Attempt {})").format(preview_file, attempt)
+                self.logger.info("Trying to upload preview file %s (Attempt %s)", preview_file, attempt)
                 previewid = pyclowder.files.upload_preview(connector, host, secret_key, resource_id, preview_file,
                                                            parameters)
             except HTTPError as err:
-                self.logger.warning("Caught HTTPError {} for {}, trying up to {} times!".format(attempt, preview_file,
-                                                                                                allowed_failures))
+                self.logger.warning("Caught HTTPError %s for %s, trying up to %s times!", attempt, preview_file,
+                                    allowed_failures)
             except Exception as ex:
                 template = "An exception of type {0} occurred. Arguments:\n{1!r}"
                 message = template.format(type(ex).__name__, ex.args)
