@@ -296,6 +296,8 @@ class VideoMetaData(Extractor):
                 success = True
             except HTTPError as err:
                 failures += 1
+                self.logger.warning("Caught HTTPError {} for {}, trying up to {} times!".format(failures, preview_file,
+                                                                                                allowed_failures))
                 if failures > allowed_failures:
                     raise err
         return previewid
