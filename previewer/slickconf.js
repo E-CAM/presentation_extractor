@@ -6,7 +6,7 @@ function initialise_slick() {
     slidesToShow: 1,
     slidesToScroll: 1,
     arrows: true,
-    fade: true,
+    fade: false,
     // draggable conflicts other CSS in the preview 
     draggable: false,
     asNavFor: '.center'
@@ -16,7 +16,7 @@ function initialise_slick() {
     infinite: false,
     slidesToShow: 3,
     slidesToScroll: 1,
-    arrows: false,
+    arrows: true,
     asNavFor: '.regular',
     // Too many slides equals too many dots
     //dots: true,
