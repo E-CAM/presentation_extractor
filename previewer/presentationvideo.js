@@ -71,12 +71,12 @@
             fileMetadata.style.display = "block";
             // Shrink the main div
             mainDiv = document.getElementsByClassName(large)[0];
-            mainDiv.className = medium
+            mainDiv.className = medium;
         } else {
             fileMetadata.style.display = "none";
             // Expand the main div
             mainDiv = document.getElementsByClassName(medium)[0];
-            mainDiv.className = large
+            mainDiv.className = large;
         }
     }
 
@@ -131,9 +131,11 @@
                 mainSlider.appendChild(slide);
               
                 slide = document.createElement("div");
+                slide.setAttribute("onclick", "$.video_jump(" + elem[3] + ")");
                 slide_image = document.createElement("IMG");
                 slide_image.setAttribute("data-lazy", jsRoutes.api.Previews.download(elem[2]).url);
-                slide_image.setAttribute("title", "Slide " + (index+1) + "/" + extract_data[0][0]['content']['nrslides']);
+                slide_image.setAttribute("title", "Slide " + (index+1) + "/" + extract_data[0][0]['content']['nrslides'] + " : Click/tap on this slide to navigate to it in the video");
+                slide_image.setAttribute("alt", "Slide " + (index+1) + "/" + extract_data[0][0]['content']['nrslides']);
                 slide.appendChild(slide_image);
                 navSlider.appendChild(slide);
                 // Add to VTT
@@ -157,6 +159,7 @@
         // as those can only be generated as previews by the system. 
         // Thus, show the file as a single video.
         var sources;
+        var noPreview = false;
         if(confId == fileId){
             try {
                 sources = "<source src='" + jsRoutes.api.Previews.download(extract_data[0][0]['content']['previews']['mp4']).url + "' type='video/mp4'>";
@@ -164,6 +167,7 @@
                     sources += "<source src='" + jsRoutes.api.Previews.download(extract_data[0][0]['content']['previews']['webm']).url + "' type='video/webm'>";
                 }
             } catch(err) {
+                noPreview = true;
                 sources = "<source src='" + referenceUrl + "' type='video/mp4'>";
             };
             $(useTab).append(
@@ -180,49 +184,49 @@
               this.chapterNav();
             }); 
 
-            // Add our slider
-            $(useTab).append("<br/>");
-            $(useTab).append("<div><h3 style=\"text-align:center;\"><label class=\"switch\">\
-              <input type=\"checkbox\" checked id=\"switchsync\">\
-              <span  title=\"Turn off to use slides for navigation\" class=\"mytoggle round\"></label>\
-              <em>Sync video to slides</em></h3><div>");
-            $(useTab).append("<br/>");
-            $(useTab).append(mainSlider);
-            $(useTab).append("<br/>");
-            $(useTab).append(navSlider);
-            initialise_slick();
+            // Add our slider (if we have a preview)
+            if( !noPreview ){
+                $(useTab).append("<br/>");
+                $(useTab).append(navSlider);
+                $(useTab).append("<br/>");
+                $(useTab).append("<div><h3 style=\"text-align:center;\"><label class=\"switch\">\
+                  <input type=\"checkbox\" checked id=\"switchsync\">\
+                  <span  title=\"Turn off to use slides for navigation\" class=\"mytoggle round\"></label>\
+                  <em>Sync video to slides</em></h3><div>");
+                $(useTab).append("<br/>");
+                $(useTab).append(mainSlider);
 
-            // Jump to slide in slick based on what the current time in the video is. Since  the slide time array is an
-            // ordered list, we just need to find the index of the element that matches.
-            function findSlide(element){
-              return  this < element;
-            }
+                // give a default wide view and sure comments are the active tab
+                toggleMetadata();
+                activateComments();
 
-            videojs('mypresentationvideo').on('timeupdate', function(e) {
-              // Check if we sync or not
-              if (document.getElementById("switchsync").checked) {
-                var next_slide = slide_times.findIndex(findSlide, videojs('mypresentationvideo').currentTime());
-                // Set current slide (with exception of last slide where findIndex returns -1)
-                if (next_slide >= 0) {
-                  $('.regular').slick('slickGoTo', next_slide - 1);
-                } else {
-                  // Explicitly set to last slide
-                  $('.regular').slick('slickGoTo', slide_times.length - 1);
+                initialise_slick();
+                // Jump to slide in slick based on what the current time in the video is. Since  the slide time array is an
+                // ordered list, we just need to find the index of the element that matches.
+                function findSlide(element){
+                   return  this < element;
                 }
-              }
-            });
+    
+                videojs('mypresentationvideo').on('timeupdate', function(e) {
+                  // Check if we sync or not
+                  if (document.getElementById("switchsync").checked) {
+                    var next_slide = slide_times.findIndex(findSlide, videojs('mypresentationvideo').currentTime());
+                    // Set current slide (with exception of last slide where findIndex returns -1)
+                    if (next_slide >= 0) {
+                      $('.regular').slick('slickGoTo', next_slide - 1);
+                    } else {
+                      // Explicitly set to last slide
+                      $('.regular').slick('slickGoTo', slide_times.length - 1);
+                    }
+                  }
+                });
+            }
         }
 
         // Collapse the extractor accordian info
         $('.collapse').collapse("hide");
 
         $(Configuration.tab).append("<br /><br /><button onclick=\"toggleMetadata()\">Toggle metadata for this item</button>");
-
-        // Once the page is loaded, give a default wide view and sure comments are the active tab
-        window.addEventListener("load", function(){
-            toggleMetadata();
-            activateComments();
-        });
 
     }).fail(function(err){
         console.log("Failed to load all scripts for video presentation previewer: " + err['status'] + " - " + err['statusText']);
