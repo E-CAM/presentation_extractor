@@ -159,6 +159,7 @@
         // as those can only be generated as previews by the system. 
         // Thus, show the file as a single video.
         var sources;
+        var track_for_video;
         var noPreview = false;
         if(confId == fileId){
             try {
@@ -170,10 +171,16 @@
                 noPreview = true;
                 sources = "<source src='" + referenceUrl + "' type='video/mp4'>";
             };
+            if (navigator.userAgent.indexOf('Safari') != -1 && navigator.userAgent.indexOf('Chrome') == -1){
+                // Safari doesn't like our base64 file so must disable track (should really add the track as a preview file)
+                track_for_video = ""
+            } else {
+                track_for_video = "<track kind='chapters' src='data:text/plain;base64,"+ window.btoa(webvtt) +"' label=\"Slides\" default>"
+            }
             $(useTab).append(
                 "<video  crossorigin='anonymous' id='mypresentationvideo' class='video-js vjs-fluid vjs-default-skin' controls preload='auto' data-setup='{ \"playbackRates\": [0.75, 1, 1.25, 1.5, 1.75] }'>" +
                 sources +
-                "<track kind='chapters' src='data:text/plain;base64,"+ window.btoa(webvtt) +"' label=\"Slides\" default>" +
+                track_for_video +
                 "<p class='vjs-no-js'>" +
                 "To view this video consider upgrading to a web browser that " +
                 "<a href='http://videojs.com/html5-video-support/' target='_blank'>supports HTML5 video.</a></p>" +
